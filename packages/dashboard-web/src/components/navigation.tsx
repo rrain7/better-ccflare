@@ -39,6 +39,7 @@ const navItems: NavItem[] = [
 	{ label: "Overview", icon: LayoutDashboard, path: "/" },
 	{ label: "Analytics", icon: BarChart3, path: "/analytics" },
 	{ label: "Requests", icon: Activity, path: "/requests" },
+	{ label: "Traces", icon: GitBranch, path: "/traces" },
 	{ label: "Accounts", icon: Users, path: "/accounts" },
 	{ label: "Agents", icon: Bot, path: "/agents" },
 	{ label: "API Keys", icon: Key, path: "/api-keys" },

@@ -13,6 +13,9 @@ import type {
 	RequestPayload,
 	RequestResponse,
 	StatsWithAccounts,
+	TraceEvent,
+	TraceGraph,
+	TraceSummary,
 } from "@better-ccflare/types";
 import { API_LIMITS, API_TIMEOUT } from "./constants";
 
@@ -67,6 +70,39 @@ export interface ReauthNeededResponse {
 	data: {
 		accounts: TokenHealthResponse[];
 	};
+}
+
+type TraceStatusFilter = "ok" | "error";
+
+export interface TraceListQuery {
+	page?: number;
+	pageSize?: number;
+	fromTs?: number;
+	toTs?: number;
+	model?: string;
+	projectPath?: string;
+	status?: TraceStatusFilter;
+}
+
+export interface TraceListData {
+	items: TraceSummary[];
+	pagination: {
+		page: number;
+		page_size: number;
+		total: number;
+	};
+}
+
+export interface TraceDetailData {
+	trace_id: string;
+	events: TraceEvent[];
+}
+
+interface TraceApiEnvelope<T> {
+	code: number;
+	message: string;
+	request_id: string;
+	data: T;
 }
 
 class API extends HttpClient {
@@ -157,6 +193,14 @@ class API extends HttpClient {
 			}
 			throw error;
 		}
+	}
+
+	private async requestTraceData<T>(url: string): Promise<T> {
+		const response = await this.get<TraceApiEnvelope<T>>(url);
+		if (response.code !== 0) {
+			throw new Error(response.message || "Trace API request failed");
+		}
+		return response.data;
 	}
 
 	async getStats(): Promise<Stats> {
@@ -701,6 +745,85 @@ class API extends HttpClient {
 
 		try {
 			const response = await this.get<RequestSummary[]>(url);
+			const duration = Date.now() - startTime;
+			this.logger.debug(`← GET ${url} - 200 (${duration}ms)`);
+			return response;
+		} catch (error) {
+			const duration = Date.now() - startTime;
+			this.logger.error(`✗ GET ${url} - ERROR (${duration}ms)`, {
+				error: error instanceof Error ? error.message : String(error),
+				stack: error instanceof Error ? error.stack : undefined,
+			});
+			throw error;
+		}
+	}
+
+	async getTraces(query: TraceListQuery = {}): Promise<TraceListData> {
+		const startTime = Date.now();
+		const params = new URLSearchParams();
+		params.set("page", String(query.page ?? 1));
+		params.set("page_size", String(query.pageSize ?? 20));
+		if (query.fromTs !== undefined) {
+			params.set("from_ts", String(query.fromTs));
+		}
+		if (query.toTs !== undefined) {
+			params.set("to_ts", String(query.toTs));
+		}
+		if (query.model && query.model.trim().length > 0) {
+			params.set("model", query.model.trim());
+		}
+		if (query.projectPath && query.projectPath.trim().length > 0) {
+			params.set("project_path", query.projectPath.trim());
+		}
+		if (query.status) {
+			params.set("status", query.status);
+		}
+
+		const url = `/api/traces?${params.toString()}`;
+		this.logger.debug(`→ GET ${url}`);
+
+		try {
+			const response = await this.requestTraceData<TraceListData>(url);
+			const duration = Date.now() - startTime;
+			this.logger.debug(`← GET ${url} - 200 (${duration}ms)`);
+			return response;
+		} catch (error) {
+			const duration = Date.now() - startTime;
+			this.logger.error(`✗ GET ${url} - ERROR (${duration}ms)`, {
+				error: error instanceof Error ? error.message : String(error),
+				stack: error instanceof Error ? error.stack : undefined,
+			});
+			throw error;
+		}
+	}
+
+	async getTraceDetail(traceId: string): Promise<TraceDetailData> {
+		const startTime = Date.now();
+		const url = `/api/traces/${encodeURIComponent(traceId)}`;
+		this.logger.debug(`→ GET ${url}`);
+
+		try {
+			const response = await this.requestTraceData<TraceDetailData>(url);
+			const duration = Date.now() - startTime;
+			this.logger.debug(`← GET ${url} - 200 (${duration}ms)`);
+			return response;
+		} catch (error) {
+			const duration = Date.now() - startTime;
+			this.logger.error(`✗ GET ${url} - ERROR (${duration}ms)`, {
+				error: error instanceof Error ? error.message : String(error),
+				stack: error instanceof Error ? error.stack : undefined,
+			});
+			throw error;
+		}
+	}
+
+	async getTraceGraph(traceId: string): Promise<TraceGraph> {
+		const startTime = Date.now();
+		const url = `/api/traces/${encodeURIComponent(traceId)}/graph`;
+		this.logger.debug(`→ GET ${url}`);
+
+		try {
+			const response = await this.requestTraceData<TraceGraph>(url);
 			const duration = Date.now() - startTime;
 			this.logger.debug(`← GET ${url} - 200 (${duration}ms)`);
 			return response;

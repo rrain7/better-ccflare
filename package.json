@@ -21,6 +21,8 @@
 		"build:dashboard": "bun run --cwd packages/dashboard-web build",
 		"build:cli": "bun run --cwd apps/cli build",
 		"build:lander": "bun run --cwd apps/lander build",
+		"trace:verify-links": "bun scripts/check/verify-trace-links.ts",
+		"trace:seed-demo": "bun scripts/seed/seed-demo-trace.ts",
 		"format": "bunx biome format --write .",
 		"lint": "bunx --bun biome check --write --unsafe ."
 	},

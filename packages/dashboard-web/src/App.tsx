@@ -17,6 +17,7 @@ import { LogsTab } from "./components/LogsTab";
 import { Navigation } from "./components/navigation";
 import { OverviewTab } from "./components/OverviewTab";
 import { RequestsTab } from "./components/RequestsTab";
+import { TracesTab } from "./components/TracesTab";
 import { QUERY_CONFIG, REFRESH_INTERVALS } from "./constants";
 import { ThemeProvider } from "./contexts/theme-context";
 import "./index.css";
@@ -73,6 +74,12 @@ const routes = [
 		element: <RequestsTab />,
 		title: "Request History",
 		subtitle: "View detailed request and response data",
+	},
+	{
+		path: "/traces",
+		element: <TracesTab />,
+		title: "Traces",
+		subtitle: "Trace chain list, graph tree, and timeline",
 	},
 	{
 		path: "/accounts",

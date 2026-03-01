@@ -16,6 +16,11 @@ export const queryKeys = {
 		] as const,
 	requests: (limit?: number) =>
 		[...queryKeys.all, "requests", { limit }] as const,
+	traces: (query?: unknown) => [...queryKeys.all, "traces", { query }] as const,
+	traceDetail: (traceId?: string) =>
+		[...queryKeys.all, "trace", "detail", { traceId }] as const,
+	traceGraph: (traceId?: string) =>
+		[...queryKeys.all, "trace", "graph", { traceId }] as const,
 	logs: () => [...queryKeys.all, "logs"] as const,
 	logHistory: () => [...queryKeys.all, "logs", "history"] as const,
 	defaultAgentModel: () =>

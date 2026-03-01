@@ -1,6 +1,6 @@
 import type { AgentUpdatePayload } from "@better-ccflare/types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "../api";
+import { api, type TraceListQuery } from "../api";
 import { queryKeys } from "../lib/query-keys";
 
 export const useAccounts = () => {
@@ -129,6 +129,35 @@ export const useRequests = (limit: number, _refetchInterval?: number) => {
 		staleTime: Infinity, // Consider data fresh until manually refetched
 		gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
 		// Remove refetchInterval - SSE stream handles real-time updates
+	});
+};
+
+export const useTraces = (query: TraceListQuery) => {
+	return useQuery({
+		queryKey: queryKeys.traces(query),
+		queryFn: () => api.getTraces(query),
+		staleTime: 20000,
+		gcTime: 5 * 60 * 1000,
+	});
+};
+
+export const useTraceDetail = (traceId: string | null) => {
+	return useQuery({
+		queryKey: queryKeys.traceDetail(traceId || undefined),
+		queryFn: () => api.getTraceDetail(traceId || ""),
+		enabled: !!traceId,
+		staleTime: 20000,
+		gcTime: 5 * 60 * 1000,
+	});
+};
+
+export const useTraceGraph = (traceId: string | null) => {
+	return useQuery({
+		queryKey: queryKeys.traceGraph(traceId || undefined),
+		queryFn: () => api.getTraceGraph(traceId || ""),
+		enabled: !!traceId,
+		staleTime: 20000,
+		gcTime: 5 * 60 * 1000,
 	});
 };
 
