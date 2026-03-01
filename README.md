@@ -628,6 +628,29 @@ We recommend using one of the workarounds above until the npm bug is fixed.
 - CLI for account management
 - REST API for automation
 
+### 🔎 Trace Observability Commands
+
+For trace debugging and validation, two helper scripts are available:
+
+```bash
+# Seed demo traces (creates at least 5 demo traces)
+bun run trace:seed-demo
+# or
+npm run trace:seed-demo
+
+# Verify trace link consistency (parent_span_id / tool_call_id)
+bun run trace:verify-links
+# or
+npm run trace:verify-links
+```
+
+Optional args:
+
+```bash
+bun run trace:seed-demo -- --prefix tr_demo --db-path /path/to/better-ccflare.db
+bun run trace:verify-links -- --trace-id tr_demo_123 --db-path /path/to/better-ccflare.db
+```
+
 ### 🔒 Production Ready
 - Automatic failover between accounts
 - OAuth token refresh handling
