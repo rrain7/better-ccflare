@@ -1,5 +1,6 @@
 declare var self: Worker;
 
+import { randomUUID } from "node:crypto";
 import {
 	BUFFER_SIZES,
 	estimateCostUSD,
@@ -13,6 +14,7 @@ import model from "@dqbd/tiktoken/encoders/cl100k_base.json";
 import { init, Tiktoken } from "@dqbd/tiktoken/lite/init";
 import { EMBEDDED_TIKTOKEN_WASM } from "./embedded-tiktoken-wasm";
 import { combineChunks } from "./stream-tee";
+import { normalizeTraceData } from "./trace-normalizer";
 import type {
 	ChunkMessage,
 	EndMessage,
@@ -658,6 +660,8 @@ async function handleEnd(msg: EndMessage): Promise<void> {
 		},
 	});
 
+	const traceResponseBody = responseBody;
+
 	// Null out large references now that we have the serialized JSON
 	responseBody = null;
 	state.chunks.length = 0;
@@ -709,6 +713,147 @@ async function handleEnd(msg: EndMessage): Promise<void> {
 		apiKeyId: startMessage.apiKeyId || undefined,
 		apiKeyName: startMessage.apiKeyName || undefined,
 	};
+
+	asyncWriter.enqueue(() => {
+		try {
+			const normalized = normalizeTraceData(
+				startMessage,
+				traceResponseBody,
+				summary,
+				msg.error || undefined,
+			);
+			const roundId = dbOps.getTraceMaxRoundId(normalized.traceId) + 1;
+			const requestSpanId = `sp_${randomUUID().replace(/-/g, "")}`;
+			const responseSpanId = `sp_${randomUUID().replace(/-/g, "")}`;
+			const parentSpanId = dbOps.getLatestTraceChainParentSpan(
+				normalized.traceId,
+			);
+			const nowTs = startMessage.timestamp + responseTime;
+
+			const events: import("@better-ccflare/types").TraceEvent[] = [
+				{
+					trace_id: normalized.traceId,
+					span_id: requestSpanId,
+					parent_span_id: parentSpanId || undefined,
+					request_id: startMessage.requestId,
+					round_id: roundId,
+					type: "llm_request",
+					actor: `model:${normalized.modelName}`,
+					ts_start: startMessage.timestamp,
+					ts_end: startMessage.timestamp,
+					status: msg.success ? "ok" : "error",
+					payload: normalized.llmRequestPayload,
+					tags: {
+						provider: startMessage.providerName,
+						...(normalized.projectPath
+							? { project_path: normalized.projectPath }
+							: {}),
+					},
+				},
+				{
+					trace_id: normalized.traceId,
+					span_id: responseSpanId,
+					parent_span_id: requestSpanId,
+					request_id: startMessage.requestId,
+					round_id: roundId,
+					type: "llm_response",
+					actor: `model:${normalized.modelName}`,
+					ts_start: startMessage.timestamp,
+					ts_end: nowTs,
+					status: msg.success ? "ok" : "error",
+					payload: normalized.llmResponsePayload,
+					metrics: {
+						latency_ms: responseTime,
+						prompt_tokens: summary.promptTokens,
+						completion_tokens: summary.completionTokens,
+						total_tokens: summary.totalTokens,
+						cost_estimate: summary.costUsd,
+					},
+					tags: {
+						provider: startMessage.providerName,
+						...(normalized.projectPath
+							? { project_path: normalized.projectPath }
+							: {}),
+					},
+				},
+			];
+
+			for (const toolCall of normalized.toolCalls) {
+				events.push({
+					trace_id: normalized.traceId,
+					span_id: `sp_${randomUUID().replace(/-/g, "")}`,
+					parent_span_id: responseSpanId,
+					request_id: startMessage.requestId,
+					round_id: roundId,
+					type: "tool_call",
+					actor: `tool:${toolCall.tool_name}`,
+					ts_start: nowTs,
+					ts_end: nowTs,
+					status: "ok",
+					payload: {
+						tool_call_id: toolCall.tool_call_id,
+						tool_name: toolCall.tool_name,
+						arguments_summary: toolCall.arguments_summary,
+						linked_llm_response_span_id: responseSpanId,
+					},
+				});
+			}
+
+			const resultBaseTs = Math.max(
+				0,
+				startMessage.timestamp - normalized.toolResults.length,
+			);
+			normalized.toolResults.forEach((toolResult, index) => {
+				const linkedToolCallSpan = dbOps.getLatestTraceToolCallSpan(
+					normalized.traceId,
+					toolResult.tool_call_id,
+				);
+
+				const eventTs = resultBaseTs + index;
+				events.push({
+					trace_id: normalized.traceId,
+					span_id: `sp_${randomUUID().replace(/-/g, "")}`,
+					parent_span_id: linkedToolCallSpan || requestSpanId,
+					request_id: startMessage.requestId,
+					round_id: roundId,
+					type: "tool_result",
+					actor: "tool:result",
+					ts_start: eventTs,
+					ts_end: eventTs,
+					status: toolResult.success ? "ok" : "error",
+					payload: {
+						tool_call_id: toolResult.tool_call_id,
+						result_summary: toolResult.result_summary,
+						execution_latency_ms: 0,
+						success: toolResult.success,
+					},
+				});
+			});
+
+			if (normalized.errorPayload) {
+				events.push({
+					trace_id: normalized.traceId,
+					span_id: `sp_${randomUUID().replace(/-/g, "")}`,
+					parent_span_id: responseSpanId,
+					request_id: startMessage.requestId,
+					round_id: roundId,
+					type: "error",
+					actor: "orchestrator",
+					ts_start: nowTs,
+					ts_end: nowTs,
+					status: "error",
+					payload: normalized.errorPayload,
+				});
+			}
+
+			dbOps.saveTraceEvents(events);
+		} catch (error) {
+			log.warn(
+				`Failed to generate trace events for request ${startMessage.requestId}:`,
+				error,
+			);
+		}
+	});
 
 	self.postMessage({
 		type: "summary",

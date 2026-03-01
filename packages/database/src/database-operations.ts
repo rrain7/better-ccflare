@@ -16,6 +16,7 @@ import {
 } from "./repositories/request.repository";
 import { StatsRepository } from "./repositories/stats.repository";
 import { StrategyRepository } from "./repositories/strategy.repository";
+import { type ListTracesQuery, TraceRepository } from "./repositories/trace.repository";
 import { withDatabaseRetrySync } from "./retry";
 
 export interface DatabaseConfig {
@@ -160,6 +161,7 @@ export class DatabaseOperations implements StrategyStore, Disposable {
 	private stats: StatsRepository;
 	private agentPreferences: AgentPreferenceRepository;
 	private apiKeys: ApiKeyRepository;
+	private traces: TraceRepository;
 
 	constructor(
 		dbPath?: string,
@@ -212,6 +214,7 @@ export class DatabaseOperations implements StrategyStore, Disposable {
 		this.stats = new StatsRepository(this.db);
 		this.agentPreferences = new AgentPreferenceRepository(this.db);
 		this.apiKeys = new ApiKeyRepository(this.db);
+		this.traces = new TraceRepository(this.db);
 	}
 
 	setRuntimeConfig(runtime: RuntimeConfig): void {
@@ -493,6 +496,89 @@ export class DatabaseOperations implements StrategyStore, Disposable {
 		limit = 50,
 	): Array<{ id: string; json: string; account_name: string | null }> {
 		return this.requests.listPayloadsWithAccountNames(limit);
+	}
+
+	saveTraceEvents(events: import("@better-ccflare/types").TraceEvent[]): void {
+		withDatabaseRetrySync(
+			() => this.traces.saveEvents(events),
+			this.retryConfig,
+			"saveTraceEvents",
+		);
+	}
+
+	listTraceSummaries(query: ListTracesQuery) {
+		return withDatabaseRetrySync(
+			() => this.traces.listTraceSummaries(query),
+			this.retryConfig,
+			"listTraceSummaries",
+		);
+	}
+
+	countTraces(query: ListTracesQuery): number {
+		return withDatabaseRetrySync(
+			() => this.traces.countTraces(query),
+			this.retryConfig,
+			"countTraces",
+		);
+	}
+
+	getTraceEvents(traceId: string) {
+		return withDatabaseRetrySync(
+			() => this.traces.getTraceEvents(traceId),
+			this.retryConfig,
+			"getTraceEvents",
+		);
+	}
+
+	getTraceGraph(traceId: string) {
+		return withDatabaseRetrySync(
+			() => this.traces.getTraceGraph(traceId),
+			this.retryConfig,
+			"getTraceGraph",
+		);
+	}
+
+	getTraceStats(traceId: string) {
+		return withDatabaseRetrySync(
+			() => this.traces.getTraceStats(traceId),
+			this.retryConfig,
+			"getTraceStats",
+		);
+	}
+
+	getTraceSummary(traceId: string) {
+		return withDatabaseRetrySync(
+			() => this.traces.getTraceSummary(traceId),
+			this.retryConfig,
+			"getTraceSummary",
+		);
+	}
+
+	getTraceMaxRoundId(traceId: string): number {
+		return withDatabaseRetrySync(
+			() => this.traces.getMaxRoundId(traceId),
+			this.retryConfig,
+			"getTraceMaxRoundId",
+		);
+	}
+
+	getLatestTraceChainParentSpan(traceId: string): string | null {
+		return withDatabaseRetrySync(
+			() => this.traces.getLatestChainParentSpan(traceId),
+			this.retryConfig,
+			"getLatestTraceChainParentSpan",
+		);
+	}
+
+	getLatestTraceToolCallSpan(
+		traceId: string,
+		toolCallId: string,
+	): string | null {
+		return withDatabaseRetrySync(
+			() => this.traces.getLatestToolCallSpan(traceId, toolCallId),
+			this.retryConfig,
+			"getLatestTraceToolCallSpan",
+		);
 	}
 
 	// OAuth operations delegated to repository

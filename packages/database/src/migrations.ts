@@ -76,6 +76,35 @@ export function ensureSchema(db: Database): void {
 		)
 	`);
 
+	// Create trace_events table for agent observability chain
+	db.run(`
+		CREATE TABLE IF NOT EXISTS trace_events (
+			span_id TEXT PRIMARY KEY,
+			trace_id TEXT NOT NULL,
+			parent_span_id TEXT,
+			request_id TEXT,
+			round_id INTEGER,
+			type TEXT NOT NULL,
+			actor TEXT NOT NULL,
+			ts_start INTEGER NOT NULL,
+			ts_end INTEGER,
+			status TEXT,
+			payload_json TEXT NOT NULL,
+			metrics_json TEXT,
+			tags_json TEXT
+		)
+	`);
+
+	db.run(
+		`CREATE INDEX IF NOT EXISTS idx_trace_events_trace_ts ON trace_events(trace_id, ts_start ASC)`,
+	);
+	db.run(
+		`CREATE INDEX IF NOT EXISTS idx_trace_events_trace_type ON trace_events(trace_id, type)`,
+	);
+	db.run(
+		`CREATE INDEX IF NOT EXISTS idx_trace_events_request_id ON trace_events(request_id)`,
+	);
+
 	// Create oauth_sessions table for secure PKCE verifier storage
 	db.run(`
 		CREATE TABLE IF NOT EXISTS oauth_sessions (

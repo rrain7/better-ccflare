@@ -12,13 +12,14 @@ import {
 	Clock,
 	Eye,
 	Filter,
+	Folder,
 	Hash,
 	Key,
 	RefreshCw,
 	User,
 	X,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { RequestPayload, RequestSummary } from "../api";
 import { useRequests } from "../hooks/queries";
 import { useRequestStream } from "../hooks/useRequestStream";
@@ -57,6 +58,7 @@ export function RequestsTab() {
 	const [accountFilter, setAccountFilter] = useState<string>("all");
 	const [agentFilter, setAgentFilter] = useState<string>("all");
 	const [apiKeyFilter, setApiKeyFilter] = useState<string>("all");
+	const [projectPathFilter, setProjectPathFilter] = useState<string>("");
 	const [dateFrom, setDateFrom] = useState<string>("");
 	const [dateTo, setDateTo] = useState<string>("");
 	const [showFilters, setShowFilters] = useState(false);
@@ -144,6 +146,78 @@ export function RequestsTab() {
 			).sort()
 		: [];
 
+	const getProjectPathFromPayload = (request: RequestPayload): string | null => {
+		const headerEntries = Object.entries(request.request.headers || {});
+		const headerMap = new Map<string, string>(
+			headerEntries.map(([k, v]) => [k.toLowerCase(), v]),
+		);
+
+		const headerPath =
+			headerMap.get("x-better-ccflare-project-path") ||
+			headerMap.get("x-project-path") ||
+			headerMap.get("x-workspace-path") ||
+			headerMap.get("x-workspace-root") ||
+			headerMap.get("x-cwd");
+		if (headerPath && headerPath.trim().length > 0) {
+			return headerPath.replace(/\\\//g, "/").replace(/[\\/]+$/g, "").trim();
+		}
+
+		const bodyBase64 = request.request.body;
+		if (!bodyBase64) return null;
+
+		let bodyText = "";
+		try {
+			bodyText = atob(bodyBase64);
+		} catch {
+			return null;
+		}
+
+		let body: Record<string, unknown> | null = null;
+		try {
+			body = JSON.parse(bodyText) as Record<string, unknown>;
+		} catch {
+			body = null;
+		}
+
+		const bodyPathCandidates = [
+			body?.project_path,
+			body?.projectPath,
+			body?.workspace_path,
+			body?.workspacePath,
+			(body?.metadata as Record<string, unknown> | undefined)?.project_path,
+			(body?.metadata as Record<string, unknown> | undefined)?.projectPath,
+		];
+
+		for (const candidate of bodyPathCandidates) {
+			if (typeof candidate === "string" && candidate.trim().length > 0) {
+				return candidate.replace(/\\\//g, "/").replace(/[\\/]+$/g, "").trim();
+			}
+		}
+
+		const text = bodyText;
+		const agentsMatch = /Contents of ([^\r\n]+?)[\\/]+AGENTS\.md/.exec(text);
+		if (agentsMatch?.[1]) {
+			return agentsMatch[1].replace(/\\\//g, "/").replace(/[\\/]+$/g, "").trim();
+		}
+
+		const claudeMatch = /Contents of ([^\r\n]+?)[\\/]+CLAUDE\.md/.exec(text);
+		if (claudeMatch?.[1]) {
+			return claudeMatch[1].replace(/\\\//g, "/").replace(/[\\/]+$/g, "").trim();
+		}
+
+		return null;
+	};
+
+	const requestProjectPathMap = useMemo(() => {
+		if (!data) return new Map<string, string | null>();
+		return new Map<string, string | null>(
+			data.requests.map((request) => [
+				request.id,
+				getProjectPathFromPayload(request),
+			]),
+		);
+	}, [data]);
+
 	// Filter requests based on selected filters
 	const filteredRequests = data
 		? data.requests.filter((request) => {
@@ -169,6 +243,18 @@ export function RequestsTab() {
 						if (requestApiKey) return false;
 					} else {
 						if (requestApiKey !== apiKeyFilter) return false;
+					}
+				}
+
+				// Project path filter (substring match, case-insensitive)
+				if (projectPathFilter.trim().length > 0) {
+					const projectPath = requestProjectPathMap.get(request.id) || "";
+					if (
+						!projectPath
+							.toLowerCase()
+							.includes(projectPathFilter.trim().toLowerCase())
+					) {
+						return false;
 					}
 				}
 
@@ -264,6 +350,7 @@ export function RequestsTab() {
 		setAccountFilter("all");
 		setAgentFilter("all");
 		setApiKeyFilter("all");
+		setProjectPathFilter("");
 		setDateFrom("");
 		setDateTo("");
 		setStatusCodeFilters(new Set());
@@ -273,6 +360,7 @@ export function RequestsTab() {
 		accountFilter !== "all" ||
 		agentFilter !== "all" ||
 		apiKeyFilter !== "all" ||
+		projectPathFilter.trim().length > 0 ||
 		dateFrom ||
 		dateTo ||
 		statusCodeFilters.size > 0;
@@ -395,6 +483,19 @@ export function RequestsTab() {
 									<button
 										type="button"
 										onClick={() => setApiKeyFilter("all")}
+										className="ml-1 p-0.5 hover:bg-destructive/20 rounded"
+									>
+										<X className="h-3 w-3" />
+									</button>
+								</Badge>
+							)}
+							{projectPathFilter.trim().length > 0 && (
+								<Badge variant="outline" className="gap-1.5 pr-1">
+									<Folder className="h-3 w-3" />
+									{projectPathFilter.trim()}
+									<button
+										type="button"
+										onClick={() => setProjectPathFilter("")}
 										className="ml-1 p-0.5 hover:bg-destructive/20 rounded"
 									>
 										<X className="h-3 w-3" />
@@ -672,6 +773,24 @@ export function RequestsTab() {
 									</DropdownMenu>
 								</div>
 							</div>
+
+							{/* Project Path Filter */}
+							<div>
+								<Label
+									htmlFor="project-path-filter"
+									className="text-xs flex items-center gap-1 mb-2"
+								>
+									<Folder className="h-3 w-3" />
+									Project Path
+								</Label>
+								<Input
+									id="project-path-filter"
+									value={projectPathFilter}
+									onChange={(e) => setProjectPathFilter(e.target.value)}
+									placeholder="e.g. D:\\codes\\xh\\better-ccflare"
+									className="h-9 text-sm"
+								/>
+							</div>
 						</div>
 					</div>
 				)}
@@ -689,6 +808,7 @@ export function RequestsTab() {
 							const isError = request.error || !request.meta.success;
 							const statusCode = request.response?.status;
 							const summary = data?.summaries.get(request.id);
+							const projectPath = requestProjectPathMap.get(request.id);
 
 							return (
 								<div
@@ -777,6 +897,12 @@ export function RequestsTab() {
 													{request.meta.accountName ||
 														`${request.meta.accountId?.slice(0, 8)}...`}
 												</span>
+											)}
+											{projectPath && (
+												<Badge variant="outline" className="text-xs">
+													<Folder className="h-3 w-3 mr-1" />
+													{projectPath}
+												</Badge>
 											)}
 											{request.meta.rateLimited && (
 												<Badge variant="warning" className="text-xs">

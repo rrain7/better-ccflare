@@ -38,3 +38,5 @@ test_*.sh
 *.db.backup.*
 *.db-wal
 *.db-shm
+.alma-snapshots
+design/
