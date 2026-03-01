@@ -36,7 +36,9 @@ interface StoredTraceEventRow {
 	tags_json: string | null;
 }
 
-function parseJsonObject(value: string | null): Record<string, unknown> | undefined {
+function parseJsonObject(
+	value: string | null,
+): Record<string, unknown> | undefined {
 	if (!value) return undefined;
 	try {
 		const parsed = JSON.parse(value) as unknown;
@@ -227,9 +229,11 @@ export class TraceRepository extends BaseRepository<TraceEvent> {
 		};
 	}
 
-	private buildTraceFilter(
-		query: ListTracesQuery,
-	): { whereSql: string; havingSql: string; params: Array<string | number> } {
+	private buildTraceFilter(query: ListTracesQuery): {
+		whereSql: string;
+		havingSql: string;
+		params: Array<string | number>;
+	} {
 		const whereParts: string[] = [];
 		const params: Array<string | number> = [];
 
@@ -268,7 +272,8 @@ export class TraceRepository extends BaseRepository<TraceEvent> {
 		}
 
 		return {
-			whereSql: whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "",
+			whereSql:
+				whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "",
 			havingSql:
 				havingParts.length > 0 ? `HAVING ${havingParts.join(" AND ")}` : "",
 			params,
@@ -438,6 +443,21 @@ export class TraceRepository extends BaseRepository<TraceEvent> {
 			SELECT span_id
 			FROM trace_events
 			WHERE trace_id = ? AND type = 'tool_call'
+				AND json_extract(payload_json, '$.tool_call_id') = ?
+			ORDER BY ts_start DESC
+			LIMIT 1
+		`,
+			[traceId, toolCallId],
+		);
+		return row?.span_id || null;
+	}
+
+	getLatestToolResultSpan(traceId: string, toolCallId: string): string | null {
+		const row = this.get<{ span_id: string }>(
+			`
+			SELECT span_id
+			FROM trace_events
+			WHERE trace_id = ? AND type = 'tool_result'
 				AND json_extract(payload_json, '$.tool_call_id') = ?
 			ORDER BY ts_start DESC
 			LIMIT 1

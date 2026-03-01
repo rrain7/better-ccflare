@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
-import { parseAssistantMessage, parseRequestMessages } from "@better-ccflare/ui-common";
 import type { RequestResponse } from "@better-ccflare/types";
+import {
+	parseAssistantMessage,
+	parseRequestMessages,
+} from "@better-ccflare/ui-common";
+import { resolveTraceIdentity } from "./trace-id";
 import type { StartMessage } from "./worker-messages";
 
 const MAX_PAYLOAD_SIZE_BYTES = 64 * 1024;
@@ -49,6 +53,9 @@ export interface NormalizedToolResult {
 		content_size: number;
 	};
 	success: boolean;
+	execution_latency_ms?: number;
+	failure_reason?: string;
+	retry_count?: number;
 }
 
 export interface NormalizedTraceData {
@@ -81,7 +88,9 @@ function decodeBase64(body: string | null): string | null {
 
 function hashOf(value: unknown): string {
 	const text = typeof value === "string" ? value : JSON.stringify(value);
-	return `sha256:${createHash("sha256").update(text || "").digest("hex")}`;
+	return `sha256:${createHash("sha256")
+		.update(text || "")
+		.digest("hex")}`;
 }
 
 function textSize(value: unknown): number {
@@ -91,10 +100,6 @@ function textSize(value: unknown): number {
 	return Buffer.byteLength(text, "utf-8");
 }
 
-function sanitizeId(raw: string): string {
-	return raw.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 120);
-}
-
 function summarizeContent(value: unknown): { hash: string; size: number } {
 	return {
 		hash: hashOf(value),
@@ -102,7 +107,9 @@ function summarizeContent(value: unknown): { hash: string; size: number } {
 	};
 }
 
-function capPayloadSize(payload: Record<string, unknown>): Record<string, unknown> {
+function capPayloadSize(
+	payload: Record<string, unknown>,
+): Record<string, unknown> {
 	const json = JSON.stringify(payload);
 	const size = Buffer.byteLength(json, "utf-8");
 	if (size <= MAX_PAYLOAD_SIZE_BYTES) {
@@ -156,62 +163,16 @@ function readNestedString(
 	return null;
 }
 
-function extractConversationSeed(
-	requestBody: RequestLikeBody | null,
-	requestBodyText: string | null,
-): string {
-	if (!requestBody) {
-		return requestBodyText || "";
-	}
-
-	const model = requestBody.model || "";
-	const messages = requestBody.messages || [];
-	const firstUser = messages.find((msg) => msg.role === "user");
-	const firstSystem = messages.find((msg) => msg.role === "system");
-
-	const userContent = firstUser?.content || "";
-	const systemContent = firstSystem?.content || "";
-	return `${model}\n${JSON.stringify(systemContent)}\n${JSON.stringify(userContent)}`;
-}
-
 function determineTraceId(
 	startMessage: StartMessage,
 	requestBody: RequestLikeBody | null,
 	requestBodyText: string | null,
 ): string {
-	const headerValue = getHeader(startMessage.requestHeaders, [
-		"x-better-ccflare-trace-id",
-		"x-trace-id",
-		"x-traceid",
-		"x-conversation-id",
-		"x-session-id",
-		"x-claude-session-id",
-		"x-request-id",
-	]);
-	if (headerValue) {
-		return `tr_${sanitizeId(headerValue)}`;
-	}
-
-	const bodyValue = readNestedString(requestBody, [
-		"trace_id",
-		"traceId",
-		"conversation_id",
-		"conversationId",
-		"session_id",
-		"sessionId",
-		"metadata.trace_id",
-		"metadata.traceId",
-	]);
-	if (bodyValue) {
-		return `tr_${sanitizeId(bodyValue)}`;
-	}
-
-	const seed = extractConversationSeed(requestBody, requestBodyText);
-	if (seed) {
-		return `tr_${createHash("sha256").update(seed).digest("hex").slice(0, 24)}`;
-	}
-
-	return `tr_${sanitizeId(startMessage.requestId)}`;
+	return resolveTraceIdentity(
+		startMessage,
+		requestBody as Record<string, unknown> | null,
+		requestBodyText,
+	).traceId;
 }
 
 function normalizeToolName(tool: Record<string, unknown>): string {
@@ -291,14 +252,108 @@ function collectToolResultsFromRequest(
 ): NormalizedToolResult[] {
 	if (!requestBodyText) return [];
 
-	const messages = parseRequestMessages(requestBodyText);
-	const results: NormalizedToolResult[] = [];
+	const resultsByToolCallId = new Map<string, NormalizedToolResult>();
 
-	for (const message of messages) {
+	const raw = safeJsonParse<{
+		messages?: Array<{
+			content?: unknown;
+		}>;
+	}>(requestBodyText);
+
+	const rawMessages = raw?.messages || [];
+	for (const message of rawMessages) {
+		if (!Array.isArray(message.content)) continue;
+		for (const block of message.content) {
+			if (!block || typeof block !== "object") continue;
+			const record = block as Record<string, unknown>;
+			if (record.type !== "tool_result") continue;
+
+			const toolCallId =
+				(typeof record.tool_use_id === "string" && record.tool_use_id) ||
+				(typeof record.tool_call_id === "string" && record.tool_call_id) ||
+				"";
+			if (!toolCallId) continue;
+
+			const content = record.content ?? "";
+			const isError = record.is_error === true;
+			const success = !isError;
+			const failureReason =
+				typeof record.error_message === "string"
+					? record.error_message
+					: typeof record.error === "string"
+						? record.error
+						: isError
+							? "tool_result_marked_as_error"
+							: undefined;
+
+			const executionLatency = (() => {
+				const candidates = [
+					record.execution_latency_ms,
+					record.latency_ms,
+					record.duration_ms,
+					(record.meta as Record<string, unknown> | undefined)
+						?.execution_latency_ms,
+					(record.meta as Record<string, unknown> | undefined)?.latency_ms,
+					(record.meta as Record<string, unknown> | undefined)?.duration_ms,
+				];
+				for (const value of candidates) {
+					if (typeof value === "number" && Number.isFinite(value)) {
+						return Math.max(0, Math.trunc(value));
+					}
+					if (typeof value === "string" && value.trim().length > 0) {
+						const parsed = Number(value);
+						if (Number.isFinite(parsed)) {
+							return Math.max(0, Math.trunc(parsed));
+						}
+					}
+				}
+				return undefined;
+			})();
+
+			const retryCount = (() => {
+				const candidates = [
+					record.retry_count,
+					record.retryCount,
+					record.attempt,
+					record.retry_attempt,
+					(record.meta as Record<string, unknown> | undefined)?.retry_count,
+				];
+				for (const value of candidates) {
+					if (typeof value === "number" && Number.isFinite(value)) {
+						return Math.max(0, Math.trunc(value));
+					}
+					if (typeof value === "string" && value.trim().length > 0) {
+						const parsed = Number(value);
+						if (Number.isFinite(parsed)) {
+							return Math.max(0, Math.trunc(parsed));
+						}
+					}
+				}
+				return undefined;
+			})();
+
+			resultsByToolCallId.set(toolCallId, {
+				tool_call_id: toolCallId,
+				result_summary: {
+					content_hash: hashOf(content),
+					content_size: textSize(content),
+				},
+				success,
+				execution_latency_ms: executionLatency,
+				failure_reason: failureReason,
+				retry_count: retryCount,
+			});
+		}
+	}
+
+	// Fallback: keep compatibility with parsed summary extraction.
+	const parsedMessages = parseRequestMessages(requestBodyText);
+	for (const message of parsedMessages) {
 		if (!message.toolResults || message.toolResults.length === 0) continue;
 		for (const result of message.toolResults) {
-			if (!result.tool_use_id) continue;
-			results.push({
+			if (!result.tool_use_id || resultsByToolCallId.has(result.tool_use_id))
+				continue;
+			resultsByToolCallId.set(result.tool_use_id, {
 				tool_call_id: result.tool_use_id,
 				result_summary: {
 					content_hash: hashOf(result.content || ""),
@@ -309,7 +364,7 @@ function collectToolResultsFromRequest(
 		}
 	}
 
-	return results;
+	return Array.from(resultsByToolCallId.values());
 }
 
 function extractFinishReason(
@@ -392,7 +447,10 @@ function getTextCandidates(requestBody: RequestLikeBody | null): string[] {
 
 	const messages = requestBody.messages || [];
 	for (const message of messages) {
-		if (typeof message.content === "string" && message.content.trim().length > 0) {
+		if (
+			typeof message.content === "string" &&
+			message.content.trim().length > 0
+		) {
 			texts.push(message.content);
 			continue;
 		}
@@ -488,8 +546,9 @@ export function normalizeTraceData(
 	const requestBodyText = decodeBase64(startMessage.requestBody);
 	const responseBodyText = decodeBase64(responseBodyBase64);
 	const requestBody =
-		(requestBodyText ? safeJsonParse<RequestLikeBody>(requestBodyText) : null) ||
-		null;
+		(requestBodyText
+			? safeJsonParse<RequestLikeBody>(requestBodyText)
+			: null) || null;
 
 	const traceId = determineTraceId(startMessage, requestBody, requestBodyText);
 	const modelName = requestBody?.model || summary.model || "unknown";

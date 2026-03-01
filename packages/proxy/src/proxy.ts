@@ -18,6 +18,7 @@ import {
 	validateProviderPath,
 } from "./handlers";
 import { EMBEDDED_WORKER_CODE } from "./inline-worker";
+import { handleInternalEventLoggingBatch } from "./tool-event-logging";
 import type { ControlMessage, OutgoingWorkerMessage } from "./worker-messages";
 
 export type { ProxyContext } from "./handlers";
@@ -171,11 +172,11 @@ export async function handleProxy(
 	apiKeyId?: string | null,
 	apiKeyName?: string | null,
 ): Promise<Response> {
-	// 0. Silently ignore Claude Code internal endpoints (non-critical, not supported by all providers)
-	if (
-		url.pathname === "/api/event_logging/batch" ||
-		url.pathname === "/api/system/package-manager"
-	) {
+	// 0. Handle Claude Code internal endpoints locally (non-provider endpoints).
+	if (url.pathname === "/api/event_logging/batch") {
+		return await handleInternalEventLoggingBatch(req, ctx);
+	}
+	if (url.pathname === "/api/system/package-manager") {
 		return new Response(JSON.stringify({ success: true }), {
 			status: 200,
 			headers: { "Content-Type": "application/json" },

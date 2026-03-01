@@ -779,6 +779,14 @@ async function handleEnd(msg: EndMessage): Promise<void> {
 			];
 
 			for (const toolCall of normalized.toolCalls) {
+				const existingToolCallSpan = dbOps.getLatestTraceToolCallSpan(
+					normalized.traceId,
+					toolCall.tool_call_id,
+				);
+				if (existingToolCallSpan) {
+					continue;
+				}
+
 				events.push({
 					trace_id: normalized.traceId,
 					span_id: `sp_${randomUUID().replace(/-/g, "")}`,
@@ -795,6 +803,9 @@ async function handleEnd(msg: EndMessage): Promise<void> {
 						tool_name: toolCall.tool_name,
 						arguments_summary: toolCall.arguments_summary,
 						linked_llm_response_span_id: responseSpanId,
+						retry_attempt: startMessage.retryAttempt,
+						failover_attempts: startMessage.failoverAttempts,
+						event_source: "inferred_from_llm_response",
 					},
 				});
 			}
@@ -804,6 +815,14 @@ async function handleEnd(msg: EndMessage): Promise<void> {
 				startMessage.timestamp - normalized.toolResults.length,
 			);
 			normalized.toolResults.forEach((toolResult, index) => {
+				const existingToolResultSpan = dbOps.getLatestTraceToolResultSpan(
+					normalized.traceId,
+					toolResult.tool_call_id,
+				);
+				if (existingToolResultSpan) {
+					return;
+				}
+
 				const linkedToolCallSpan = dbOps.getLatestTraceToolCallSpan(
 					normalized.traceId,
 					toolResult.tool_call_id,
@@ -824,8 +843,16 @@ async function handleEnd(msg: EndMessage): Promise<void> {
 					payload: {
 						tool_call_id: toolResult.tool_call_id,
 						result_summary: toolResult.result_summary,
-						execution_latency_ms: 0,
+						execution_latency_ms: toolResult.execution_latency_ms || 0,
 						success: toolResult.success,
+						failure_reason: toolResult.failure_reason,
+						retry_count: toolResult.retry_count,
+						retry_attempt: startMessage.retryAttempt,
+						failover_attempts: startMessage.failoverAttempts,
+						event_source: "inferred_from_tool_result_message",
+					},
+					metrics: {
+						latency_ms: toolResult.execution_latency_ms,
 					},
 				});
 			});

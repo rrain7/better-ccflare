@@ -16,7 +16,10 @@ import {
 } from "./repositories/request.repository";
 import { StatsRepository } from "./repositories/stats.repository";
 import { StrategyRepository } from "./repositories/strategy.repository";
-import { type ListTracesQuery, TraceRepository } from "./repositories/trace.repository";
+import {
+	type ListTracesQuery,
+	TraceRepository,
+} from "./repositories/trace.repository";
 import { withDatabaseRetrySync } from "./retry";
 
 export interface DatabaseConfig {
@@ -578,6 +581,17 @@ export class DatabaseOperations implements StrategyStore, Disposable {
 			() => this.traces.getLatestToolCallSpan(traceId, toolCallId),
 			this.retryConfig,
 			"getLatestTraceToolCallSpan",
+		);
+	}
+
+	getLatestTraceToolResultSpan(
+		traceId: string,
+		toolCallId: string,
+	): string | null {
+		return withDatabaseRetrySync(
+			() => this.traces.getLatestToolResultSpan(traceId, toolCallId),
+			this.retryConfig,
+			"getLatestTraceToolResultSpan",
 		);
 	}
 

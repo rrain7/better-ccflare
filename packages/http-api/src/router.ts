@@ -63,16 +63,16 @@ import { createRequestsStreamHandler } from "./handlers/requests-stream";
 import { createStatsHandler, createStatsResetHandler } from "./handlers/stats";
 import { createSystemInfoHandler } from "./handlers/system";
 import {
-	createTraceDetailHandler,
-	createTraceGraphHandler,
-	createTracesListHandler,
-	createTraceStatsHandler,
-} from "./handlers/traces";
-import {
 	createAccountTokenHealthHandler,
 	createReauthNeededHandler,
 	createTokenHealthHandler,
 } from "./handlers/token-health";
+import {
+	createTraceDetailHandler,
+	createTraceGraphHandler,
+	createTraceStatsHandler,
+	createTracesListHandler,
+} from "./handlers/traces";
 import { createVersionCheckHandler } from "./handlers/version";
 import { AuthService } from "./services/auth-service";
 import type { APIContext } from "./types";
@@ -212,7 +212,9 @@ export class APIRouter {
 		this.handlers.set("GET:/api/requests/stream", (req) =>
 			requestsStreamHandler(req),
 		);
-		this.handlers.set("GET:/api/traces", (_req, url) => tracesListHandler(url));
+		this.handlers.set("GET:/api/traces", (req, url) =>
+			tracesListHandler(req, url),
+		);
 		this.handlers.set("GET:/api/config", () => configHandlers.getConfig());
 		this.handlers.set("GET:/api/config/strategy", () =>
 			configHandlers.getStrategy(),
@@ -336,17 +338,26 @@ export class APIRouter {
 			if (traceId) {
 				if (parts.length === 4) {
 					const detailHandler = createTraceDetailHandler(this.context.dbOps);
-					return await this.wrapHandler(() => detailHandler(traceId))(req, url);
+					return await this.wrapHandler((req) => detailHandler(req, traceId))(
+						req,
+						url,
+					);
 				}
 
 				if (parts.length === 5 && parts[4] === "graph") {
 					const graphHandler = createTraceGraphHandler(this.context.dbOps);
-					return await this.wrapHandler(() => graphHandler(traceId))(req, url);
+					return await this.wrapHandler((req) => graphHandler(req, traceId))(
+						req,
+						url,
+					);
 				}
 
 				if (parts.length === 5 && parts[4] === "stats") {
 					const statsHandler = createTraceStatsHandler(this.context.dbOps);
-					return await this.wrapHandler(() => statsHandler(traceId))(req, url);
+					return await this.wrapHandler((req) => statsHandler(req, traceId))(
+						req,
+						url,
+					);
 				}
 			}
 		}
