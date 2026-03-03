@@ -802,6 +802,7 @@ async function handleEnd(msg: EndMessage): Promise<void> {
 						tool_call_id: toolCall.tool_call_id,
 						tool_name: toolCall.tool_name,
 						arguments_summary: toolCall.arguments_summary,
+						arguments_preview: toolCall.arguments_preview,
 						linked_llm_response_span_id: responseSpanId,
 						retry_attempt: startMessage.retryAttempt,
 						failover_attempts: startMessage.failoverAttempts,
@@ -843,6 +844,7 @@ async function handleEnd(msg: EndMessage): Promise<void> {
 					payload: {
 						tool_call_id: toolResult.tool_call_id,
 						result_summary: toolResult.result_summary,
+						result_preview: toolResult.result_preview,
 						execution_latency_ms: toolResult.execution_latency_ms || 0,
 						success: toolResult.success,
 						failure_reason: toolResult.failure_reason,

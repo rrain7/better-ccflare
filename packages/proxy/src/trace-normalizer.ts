@@ -10,6 +10,9 @@ import type { StartMessage } from "./worker-messages";
 const MAX_PAYLOAD_SIZE_BYTES = 64 * 1024;
 const MAX_MESSAGE_SUMMARY = 100;
 const MAX_TOOL_SUMMARY = 50;
+const MAX_PREVIEW_CHARS = 800;
+const MAX_REQUEST_EXCERPT_CHARS = 1200;
+const MAX_RESPONSE_EXCERPT_CHARS = 1200;
 
 interface RequestLikeBody {
 	model?: string;
@@ -44,6 +47,7 @@ export interface NormalizedToolCall {
 		arguments_hash: string;
 		arguments_size: number;
 	};
+	arguments_preview?: string;
 }
 
 export interface NormalizedToolResult {
@@ -52,6 +56,7 @@ export interface NormalizedToolResult {
 		content_hash: string;
 		content_size: number;
 	};
+	result_preview?: string;
 	success: boolean;
 	execution_latency_ms?: number;
 	failure_reason?: string;
@@ -105,6 +110,66 @@ function summarizeContent(value: unknown): { hash: string; size: number } {
 		hash: hashOf(value),
 		size: textSize(value),
 	};
+}
+
+function truncatePreview(text: string, maxChars: number): string {
+	if (text.length <= maxChars) {
+		return text;
+	}
+	const omittedChars = text.length - maxChars;
+	return `${text.slice(0, maxChars)}... (truncated ${omittedChars} chars)`;
+}
+
+function coercePreviewText(value: unknown): string {
+	if (value == null) return "";
+	if (typeof value === "string") return value;
+	if (typeof value === "number" || typeof value === "boolean") {
+		return String(value);
+	}
+
+	if (Array.isArray(value)) {
+		const parts: string[] = [];
+		for (const item of value) {
+			if (typeof item === "string") {
+				parts.push(item);
+				continue;
+			}
+			if (!item || typeof item !== "object") continue;
+			const record = item as Record<string, unknown>;
+			if (typeof record.text === "string") {
+				parts.push(record.text);
+				continue;
+			}
+			if (typeof record.content === "string") {
+				parts.push(record.content);
+				continue;
+			}
+			const json = JSON.stringify(record);
+			if (json) {
+				parts.push(json);
+			}
+		}
+		if (parts.length > 0) {
+			return parts.join("\n");
+		}
+	}
+
+	if (typeof value === "object") {
+		const record = value as Record<string, unknown>;
+		if (typeof record.text === "string") return record.text;
+		if (typeof record.content === "string") return record.content;
+	}
+
+	return JSON.stringify(value) || "";
+}
+
+function toPreview(
+	value: unknown,
+	maxChars = MAX_PREVIEW_CHARS,
+): string | undefined {
+	const raw = coercePreviewText(value).trim();
+	if (raw.length === 0) return undefined;
+	return truncatePreview(raw, maxChars);
 }
 
 function capPayloadSize(
@@ -222,6 +287,7 @@ function collectToolCallsFromResponse(
 					arguments_hash: hashOf(args),
 					arguments_size: textSize(args),
 				},
+				arguments_preview: toPreview(args),
 			});
 		}
 	}
@@ -241,6 +307,7 @@ function collectToolCallsFromResponse(
 				arguments_hash: hashOf(rawArgs),
 				arguments_size: textSize(rawArgs),
 			},
+			arguments_preview: toPreview(rawArgs),
 		});
 	}
 
@@ -338,6 +405,7 @@ function collectToolResultsFromRequest(
 					content_hash: hashOf(content),
 					content_size: textSize(content),
 				},
+				result_preview: toPreview(content),
 				success,
 				execution_latency_ms: executionLatency,
 				failure_reason: failureReason,
@@ -359,6 +427,7 @@ function collectToolResultsFromRequest(
 					content_hash: hashOf(result.content || ""),
 					content_size: textSize(result.content || ""),
 				},
+				result_preview: toPreview(result.content || ""),
 				success: true,
 			});
 		}
@@ -410,6 +479,19 @@ function toMessagesSummary(
 		length: textSize(message.content || ""),
 		hash: hashOf(message.content || ""),
 	}));
+}
+
+function toMessagesPreview(
+	requestBody: RequestLikeBody | null,
+): Array<{ role: string; preview: string }> {
+	const messages = requestBody?.messages || [];
+	return messages
+		.slice(0, MAX_MESSAGE_SUMMARY)
+		.map((message) => ({
+			role: typeof message.role === "string" ? message.role : "unknown",
+			preview: toPreview(message.content) || "",
+		}))
+		.filter((message) => message.preview.length > 0);
 }
 
 function toToolsSummary(
@@ -555,27 +637,34 @@ export function normalizeTraceData(
 	const projectPath = determineProjectPath(startMessage, requestBody);
 	const toolCalls = collectToolCallsFromResponse(responseBodyText);
 	const toolResults = collectToolResultsFromRequest(requestBodyText);
+	const assistantMessage = parseAssistantMessage(responseBodyText || "");
 
 	const llmRequestPayload = capPayloadSize({
 		model: modelName,
 		project_path: projectPath,
 		endpoint: startMessage.path,
 		messages_summary: toMessagesSummary(requestBody),
+		messages_preview: toMessagesPreview(requestBody),
 		tools_summary: toToolsSummary(requestBody),
 		tool_choice: normalizeToolChoice(requestBody?.tool_choice),
 		request_id: startMessage.requestId,
+		request_excerpt: toPreview(requestBodyText, MAX_REQUEST_EXCERPT_CHARS),
 	});
 
 	const llmResponsePayload = capPayloadSize({
+		model: modelName,
 		finish_reason: extractFinishReason(responseBodyText, toolCalls),
 		assistant_content_summary: summarizeContent(
-			parseAssistantMessage(responseBodyText || "")?.content || "",
+			assistantMessage?.content || "",
 		),
+		assistant_content_preview: toPreview(assistantMessage?.content || ""),
+		response_excerpt: toPreview(responseBodyText, MAX_RESPONSE_EXCERPT_CHARS),
 		tool_calls: toolCalls.map((toolCall) => ({
 			id: toolCall.tool_call_id,
 			name: toolCall.tool_name,
 			arguments_hash: toolCall.arguments_summary.arguments_hash,
 			arguments_size: toolCall.arguments_summary.arguments_size,
+			arguments_preview: toolCall.arguments_preview,
 		})),
 		usage: {
 			prompt_tokens: summary.promptTokens || 0,

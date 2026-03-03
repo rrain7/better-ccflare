@@ -21,6 +21,7 @@ interface ParsedToolLifecycleEvent {
 	latencyMs: number;
 	success: boolean;
 	failureReason?: string;
+	resultPreview?: string;
 	retryCount?: number;
 }
 
@@ -107,6 +108,18 @@ function toContentSummary(value: unknown): {
 		content_hash: `sha256:${createHash("sha256").update(text).digest("hex")}`,
 		content_size: Buffer.byteLength(text, "utf-8"),
 	};
+}
+
+function toPreviewText(value: unknown): string | undefined {
+	if (value == null) return undefined;
+	const raw =
+		typeof value === "string" ? value : JSON.stringify(value) || String(value);
+	const trimmed = raw.trim();
+	if (!trimmed) return undefined;
+	if (trimmed.length <= 800) {
+		return trimmed;
+	}
+	return `${trimmed.slice(0, 800)}... (truncated ${trimmed.length - 800} chars)`;
 }
 
 function classifyEventKind(
@@ -306,6 +319,19 @@ export function parseToolLifecycleEventsFromBatch(
 			"event_data.request_id",
 		]);
 
+		const resultPreview = toPreviewText(
+			readPath(mergedEvent, "result") ??
+				readPath(mergedEvent, "output") ??
+				readPath(mergedEvent, "content") ??
+				readPath(mergedEvent, "response") ??
+				readPath(mergedEvent, "event_data.result") ??
+				readPath(mergedEvent, "event_data.output") ??
+				readPath(mergedEvent, "event_data.content") ??
+				readPath(mergedEvent, "data.result") ??
+				readPath(mergedEvent, "data.output") ??
+				failureReason,
+		);
+
 		const traceIdentity = resolveTraceIdentity(
 			{
 				requestHeaders,
@@ -326,6 +352,7 @@ export function parseToolLifecycleEventsFromBatch(
 			latencyMs: Math.max(0, Math.trunc(executionLatency)),
 			success: kind === "tool_call" ? true : success,
 			failureReason: kind === "tool_result" ? failureReason : undefined,
+			resultPreview: kind === "tool_result" ? resultPreview : undefined,
 			retryCount:
 				retryCount !== undefined
 					? Math.max(0, Math.trunc(retryCount))
@@ -413,6 +440,7 @@ function persistToolLifecycleEvents(
 					status: event.success ? "ok" : "error",
 					failure_reason: event.failureReason,
 				}),
+				result_preview: event.resultPreview,
 				execution_latency_ms: event.latencyMs,
 				success: event.success,
 				failure_reason: event.failureReason,

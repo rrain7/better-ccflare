@@ -86,7 +86,18 @@ function buildDemoTraceEvents(prefix: string, baseTs: number): TraceEvent[] {
 				ts_start: baseTs + 15,
 				ts_end: baseTs + 35,
 				status: "ok",
-				payload: { model: "claude-3-7-sonnet", turn: 1 },
+				payload: {
+					model: "claude-3-7-sonnet",
+					turn: 1,
+					messages_preview: [
+						{
+							role: "user",
+							preview: "Find latest dependency versions.",
+						},
+					],
+					request_excerpt:
+						'{"messages":[{"role":"user","content":"Find latest dependency versions."}]}',
+				},
 				metrics: { prompt_tokens: 420, total_tokens: 420 },
 				tags: { project_path: "D:/codes/xh/better-ccflare" },
 			},
@@ -101,7 +112,12 @@ function buildDemoTraceEvents(prefix: string, baseTs: number): TraceEvent[] {
 				ts_start: baseTs + 40,
 				ts_end: baseTs + 45,
 				status: "ok",
-				payload: { tool_call_id: "tc_success_1", tool_name: "web_search" },
+				payload: {
+					tool_call_id: "tc_success_1",
+					tool_name: "web_search",
+					arguments_preview:
+						'{"query":"better-ccflare dependency releases","top_k":3}',
+				},
 				tags: { project_path: "D:/codes/xh/better-ccflare" },
 			},
 			{
@@ -118,6 +134,16 @@ function buildDemoTraceEvents(prefix: string, baseTs: number): TraceEvent[] {
 				payload: {
 					tool_call_id: "tc_success_1",
 					result_summary: "3 docs returned",
+					result_preview:
+						'["repo changelog: v1.4.0","bun.lock update: ws@8.18.3","security advisory: patch available"]',
+					result: {
+						total_hits: 3,
+						top_titles: [
+							"repo changelog: v1.4.0",
+							"bun.lock update: ws@8.18.3",
+							"security advisory: patch available",
+						],
+					},
 					success: true,
 				},
 				metrics: { latency_ms: 90 },
@@ -134,7 +160,14 @@ function buildDemoTraceEvents(prefix: string, baseTs: number): TraceEvent[] {
 				ts_start: baseTs + 140,
 				ts_end: baseTs + 250,
 				status: "ok",
-				payload: { completion: "Updated dependency list." },
+				payload: {
+					model: "claude-3-7-sonnet",
+					completion: "Updated dependency list.",
+					assistant_content_preview:
+						"Updated dependency list to ws@8.18.3 and undici@6.19.8. Included changelog notes.",
+					response_excerpt:
+						'{"content":[{"type":"text","text":"Updated dependency list to ws@8.18.3 and undici@6.19.8."}]}',
+				},
 				metrics: {
 					completion_tokens: 200,
 					total_tokens: 620,
@@ -177,7 +210,18 @@ function buildDemoTraceEvents(prefix: string, baseTs: number): TraceEvent[] {
 				ts_start: start + 12,
 				ts_end: start + 30,
 				status: "ok",
-				payload: { model: "claude-3-7-sonnet", turn: 1 },
+				payload: {
+					model: "claude-3-7-sonnet",
+					turn: 1,
+					messages_preview: [
+						{
+							role: "user",
+							preview: "Read remote file and summarize errors.",
+						},
+					],
+					request_excerpt:
+						'{"messages":[{"role":"user","content":"Read remote file and summarize errors."}]}',
+				},
 				metrics: { prompt_tokens: 360, total_tokens: 360 },
 				tags: { project_path: "D:/codes/xh/better-ccflare" },
 			},
@@ -192,7 +236,12 @@ function buildDemoTraceEvents(prefix: string, baseTs: number): TraceEvent[] {
 				ts_start: start + 36,
 				ts_end: start + 42,
 				status: "ok",
-				payload: { tool_call_id: "tc_failure_1", tool_name: "read_remote_file" },
+				payload: {
+					tool_call_id: "tc_failure_1",
+					tool_name: "read_remote_file",
+					arguments_preview:
+						'{"url":"https://example.com/logs/error.log","timeout_ms":100}',
+				},
 				tags: { project_path: "D:/codes/xh/better-ccflare" },
 			},
 			{
@@ -209,6 +258,11 @@ function buildDemoTraceEvents(prefix: string, baseTs: number): TraceEvent[] {
 				payload: {
 					tool_call_id: "tc_failure_1",
 					failure_reason: "ETIMEDOUT",
+					result_preview: "request timed out after 108ms while fetching remote file",
+					error_detail: {
+						code: "ETIMEDOUT",
+						url: "https://example.com/logs/error.log",
+					},
 					success: false,
 				},
 				metrics: { latency_ms: 108 },
@@ -263,7 +317,18 @@ function buildDemoTraceEvents(prefix: string, baseTs: number): TraceEvent[] {
 				ts_start: start + 10,
 				ts_end: start + 20,
 				status: "ok",
-				payload: { model: "claude-3-5-haiku", turn: 1 },
+				payload: {
+					model: "claude-3-5-haiku",
+					turn: 1,
+					messages_preview: [
+						{
+							role: "user",
+							preview: "Explain this SQL query plan.",
+						},
+					],
+					request_excerpt:
+						'{"messages":[{"role":"user","content":"Explain this SQL query plan."}]}',
+				},
 				metrics: { prompt_tokens: 180, total_tokens: 180 },
 				tags: { project_path: "D:/codes/xh/sql-notes" },
 			},
@@ -278,7 +343,14 @@ function buildDemoTraceEvents(prefix: string, baseTs: number): TraceEvent[] {
 				ts_start: start + 22,
 				ts_end: start + 102,
 				status: "ok",
-				payload: { completion: "The planner prefers index seek because..." },
+				payload: {
+					model: "claude-3-5-haiku",
+					completion: "The planner prefers index seek because...",
+					assistant_content_preview:
+						"The planner prefers index seek because predicate selectivity is high and index covers filtered columns.",
+					response_excerpt:
+						'{"content":[{"type":"text","text":"The planner prefers index seek because predicate selectivity is high."}]}',
+				},
 				metrics: {
 					completion_tokens: 120,
 					total_tokens: 300,
@@ -323,7 +395,18 @@ function buildDemoTraceEvents(prefix: string, baseTs: number): TraceEvent[] {
 				ts_start: start + 12,
 				ts_end: start + 28,
 				status: "ok",
-				payload: { model: "claude-3-7-sonnet", turn: 1 },
+				payload: {
+					model: "claude-3-7-sonnet",
+					turn: 1,
+					messages_preview: [
+						{
+							role: "user",
+							preview: "Inspect project and run unit tests.",
+						},
+					],
+					request_excerpt:
+						'{"messages":[{"role":"user","content":"Inspect project and run unit tests."}]}',
+				},
 				metrics: { prompt_tokens: 520, total_tokens: 520 },
 				tags: { project_path: "D:/codes/xh/better-ccflare" },
 			},
@@ -338,7 +421,11 @@ function buildDemoTraceEvents(prefix: string, baseTs: number): TraceEvent[] {
 				ts_start: start + 33,
 				ts_end: start + 36,
 				status: "ok",
-				payload: { tool_call_id: "tc_multi_1", tool_name: "list_files" },
+				payload: {
+					tool_call_id: "tc_multi_1",
+					tool_name: "list_files",
+					arguments_preview: '{"path":"D:/codes/xh/better-ccflare","depth":2}',
+				},
 				tags: { project_path: "D:/codes/xh/better-ccflare" },
 			},
 			{
@@ -352,7 +439,16 @@ function buildDemoTraceEvents(prefix: string, baseTs: number): TraceEvent[] {
 				ts_start: start + 36,
 				ts_end: start + 82,
 				status: "ok",
-				payload: { tool_call_id: "tc_multi_1", success: true, count: 124 },
+				payload: {
+					tool_call_id: "tc_multi_1",
+					success: true,
+					count: 124,
+					result_preview: '["README.md","package.json","packages/proxy/src"]',
+					result: {
+						root: "D:/codes/xh/better-ccflare",
+						top_items: ["README.md", "package.json", "packages/proxy/src"],
+					},
+				},
 				metrics: { latency_ms: 46 },
 				tags: { project_path: "D:/codes/xh/better-ccflare" },
 			},
@@ -367,7 +463,11 @@ function buildDemoTraceEvents(prefix: string, baseTs: number): TraceEvent[] {
 				ts_start: start + 86,
 				ts_end: start + 90,
 				status: "ok",
-				payload: { tool_call_id: "tc_multi_2", tool_name: "run_tests" },
+				payload: {
+					tool_call_id: "tc_multi_2",
+					tool_name: "run_tests",
+					arguments_preview: '{"command":"bun test","cwd":"D:/codes/xh/better-ccflare"}',
+				},
 				tags: { project_path: "D:/codes/xh/better-ccflare" },
 			},
 			{
@@ -381,7 +481,17 @@ function buildDemoTraceEvents(prefix: string, baseTs: number): TraceEvent[] {
 				ts_start: start + 90,
 				ts_end: start + 280,
 				status: "ok",
-				payload: { tool_call_id: "tc_multi_2", success: true, failed: 0 },
+				payload: {
+					tool_call_id: "tc_multi_2",
+					success: true,
+					failed: 0,
+					result_preview: "32 passed, 0 failed, 1 skipped",
+					result: {
+						passed: 32,
+						failed: 0,
+						skipped: 1,
+					},
+				},
 				metrics: { latency_ms: 190 },
 				tags: { project_path: "D:/codes/xh/better-ccflare" },
 			},
@@ -396,7 +506,14 @@ function buildDemoTraceEvents(prefix: string, baseTs: number): TraceEvent[] {
 				ts_start: start + 286,
 				ts_end: start + 390,
 				status: "ok",
-				payload: { completion: "All tests passed. No regressions found." },
+				payload: {
+					model: "claude-3-7-sonnet",
+					completion: "All tests passed. No regressions found.",
+					assistant_content_preview:
+						"All tests passed. No regressions found. Suggest moving to integration validation.",
+					response_excerpt:
+						'{"content":[{"type":"text","text":"All tests passed. No regressions found."}]}',
+				},
 				metrics: {
 					completion_tokens: 160,
 					total_tokens: 680,
@@ -441,7 +558,18 @@ function buildDemoTraceEvents(prefix: string, baseTs: number): TraceEvent[] {
 				ts_start: start + 12,
 				ts_end: start + 22,
 				status: "ok",
-				payload: { model: "claude-3-7-sonnet", turn: 1 },
+				payload: {
+					model: "claude-3-7-sonnet",
+					turn: 1,
+					messages_preview: [
+						{
+							role: "user",
+							preview: "Fetch changelog and summarize security fixes.",
+						},
+					],
+					request_excerpt:
+						'{"messages":[{"role":"user","content":"Fetch changelog and summarize security fixes."}]}',
+				},
 				metrics: { prompt_tokens: 410, total_tokens: 410 },
 				tags: { project_path: "D:/codes/xh/better-ccflare" },
 			},
@@ -456,7 +584,11 @@ function buildDemoTraceEvents(prefix: string, baseTs: number): TraceEvent[] {
 				ts_start: start + 28,
 				ts_end: start + 30,
 				status: "ok",
-				payload: { tool_call_id: "tc_retry_1", tool_name: "http_get" },
+				payload: {
+					tool_call_id: "tc_retry_1",
+					tool_name: "http_get",
+					arguments_preview: '{"url":"https://example.com/changelog","timeout_ms":500}',
+				},
 				tags: { project_path: "D:/codes/xh/better-ccflare" },
 			},
 			{
@@ -475,6 +607,8 @@ function buildDemoTraceEvents(prefix: string, baseTs: number): TraceEvent[] {
 					success: false,
 					failure_reason: "HTTP 503",
 					retry_count: 1,
+					result_preview: "HTTP 503 Service Unavailable",
+					response_meta: { status: 503, retry_after_ms: 1000 },
 				},
 				metrics: { latency_ms: 90 },
 				tags: { project_path: "D:/codes/xh/better-ccflare" },
@@ -490,7 +624,11 @@ function buildDemoTraceEvents(prefix: string, baseTs: number): TraceEvent[] {
 				ts_start: start + 128,
 				ts_end: start + 132,
 				status: "ok",
-				payload: { tool_call_id: "tc_retry_2", tool_name: "http_get" },
+				payload: {
+					tool_call_id: "tc_retry_2",
+					tool_name: "http_get",
+					arguments_preview: '{"url":"https://example.com/changelog","timeout_ms":500}',
+				},
 				tags: { project_path: "D:/codes/xh/better-ccflare" },
 			},
 			{
@@ -508,6 +646,12 @@ function buildDemoTraceEvents(prefix: string, baseTs: number): TraceEvent[] {
 					tool_call_id: "tc_retry_2",
 					success: true,
 					result_summary: "200 OK",
+					result_preview: "Fetched changelog entries for versions v1.4.0 to v1.4.2",
+					result: {
+						status: 200,
+						version_range: "v1.4.0..v1.4.2",
+						security_fix_count: 2,
+					},
 				},
 				metrics: { latency_ms: 83 },
 				tags: { project_path: "D:/codes/xh/better-ccflare" },
@@ -523,7 +667,14 @@ function buildDemoTraceEvents(prefix: string, baseTs: number): TraceEvent[] {
 				ts_start: start + 220,
 				ts_end: start + 318,
 				status: "ok",
-				payload: { completion: "Security fixes include token redaction and CSP hardening." },
+				payload: {
+					model: "claude-3-7-sonnet",
+					completion: "Security fixes include token redaction and CSP hardening.",
+					assistant_content_preview:
+						"Security fixes include token redaction in logs and CSP hardening for dashboard pages.",
+					response_excerpt:
+						'{"content":[{"type":"text","text":"Security fixes include token redaction and CSP hardening."}]}',
+				},
 				metrics: {
 					completion_tokens: 145,
 					total_tokens: 555,
@@ -573,4 +724,3 @@ Creates 5 demo traces with:
 if (import.meta.main) {
 	main();
 }
-
