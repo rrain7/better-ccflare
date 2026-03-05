@@ -638,6 +638,11 @@ bun run trace:seed-demo
 # or
 npm run trace:seed-demo
 
+# Purge demo traces (keeps real traces)
+bun run trace:purge-demo
+# or
+npm run trace:purge-demo
+
 # Verify trace link consistency (parent_span_id / tool_call_id)
 bun run trace:verify-links
 # or
@@ -648,8 +653,13 @@ Optional args:
 
 ```bash
 bun run trace:seed-demo -- --prefix tr_demo --db-path /path/to/better-ccflare.db
+bun run trace:purge-demo -- --prefix tr_demo --db-path /path/to/better-ccflare.db
 bun run trace:verify-links -- --trace-id tr_demo_123 --db-path /path/to/better-ccflare.db
 ```
+
+Default database location:
+- New installs: OS data directory (Windows: `%LOCALAPPDATA%\better-ccflare\better-ccflare.db`, macOS: `~/Library/Application Support/better-ccflare/better-ccflare.db`, Linux: `${XDG_DATA_HOME:-~/.local/share}/better-ccflare/better-ccflare.db`)
+- Existing installs: old config-directory database is still detected and reused automatically.
 
 ### 🔒 Production Ready
 - Automatic failover between accounts

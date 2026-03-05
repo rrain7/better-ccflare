@@ -22,6 +22,28 @@ export function getPlatformConfigDir(): string {
 }
 
 /**
+ * Get the platform-specific data directory for better-ccflare
+ */
+export function getPlatformDataDir(): string {
+	if (platform === "win32") {
+		const baseDir =
+			process.env.LOCALAPPDATA ??
+			process.env.APPDATA ??
+			join(homedir(), "AppData", "Local");
+		return join(baseDir, "better-ccflare");
+	}
+
+	if (platform === "darwin") {
+		return join(homedir(), "Library", "Application Support", "better-ccflare");
+	}
+
+	// Linux/Unix: XDG data directory
+	const xdgData = process.env.XDG_DATA_HOME;
+	const baseDir = xdgData ?? join(homedir(), ".local", "share");
+	return join(baseDir, "better-ccflare");
+}
+
+/**
  * Get the legacy ccflare configuration directory for migration purposes
  */
 export function getLegacyConfigDir(): string {

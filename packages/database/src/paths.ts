@@ -1,5 +1,9 @@
+import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { getPlatformConfigDir } from "@better-ccflare/config";
+import {
+	getPlatformConfigDir,
+	getPlatformDataDir,
+} from "@better-ccflare/config";
 
 export function resolveDbPath(): string {
 	// Check for explicit DB path from environment (support both old and new env var names)
@@ -9,14 +13,21 @@ export function resolveDbPath(): string {
 		return explicitPath;
 	}
 
-	const configDir = getPlatformConfigDir();
+	// Preferred default: OS data directory.
+	const dataDir = getPlatformDataDir();
+	const preferredPath = join(dataDir, "better-ccflare.db");
+	if (existsSync(preferredPath)) {
+		return preferredPath;
+	}
 
-	// Always use the same database path for consistency
-	// For development/testing, specify a different database using:
-	// - Environment variable: BETTER_CCFLARE_DB_PATH=/path/to/dev.db
-	// - Command line flag: --db-path /path/to/dev.db
-	// - .env file: BETTER_CCFLARE_DB_PATH=/path/to/dev.db
-	return join(configDir, "better-ccflare.db");
+	// Backward compatibility: if old config-dir DB exists, keep using it.
+	const legacyDefaultPath = join(getPlatformConfigDir(), "better-ccflare.db");
+	if (existsSync(legacyDefaultPath)) {
+		return legacyDefaultPath;
+	}
+
+	// Fresh install path (data directory).
+	return preferredPath;
 }
 
 export function getLegacyDbPath(): string {

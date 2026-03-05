@@ -23,6 +23,7 @@
 		"build:lander": "bun run --cwd apps/lander build",
 		"trace:verify-links": "bun scripts/check/verify-trace-links.ts",
 		"trace:seed-demo": "bun scripts/seed/seed-demo-trace.ts",
+		"trace:purge-demo": "bun scripts/check/purge-demo-traces.ts",
 		"format": "bunx biome format --write .",
 		"lint": "bunx --bun biome check --write --unsafe ."
 	},
