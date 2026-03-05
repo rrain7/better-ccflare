@@ -126,6 +126,144 @@ function getEventSequenceLabel(event: TraceEvent): string {
 	return event.type;
 }
 
+function tryParseJsonLikeString(value: string): unknown | null {
+	const trimmed = value.trim();
+	if (!trimmed) return null;
+
+	const parseCandidate = (candidate: string): unknown | null => {
+		const target = candidate.trim();
+		if (!(target.startsWith("{") || target.startsWith("["))) {
+			return null;
+		}
+		try {
+			return JSON.parse(target);
+		} catch {
+			return null;
+		}
+	};
+
+	const direct = parseCandidate(trimmed);
+	if (direct !== null) return direct;
+
+	if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+		try {
+			const unwrapped = JSON.parse(trimmed);
+			if (typeof unwrapped === "string") {
+				return parseCandidate(unwrapped);
+			}
+		} catch {
+			return null;
+		}
+	}
+
+	return null;
+}
+
+function expandJsonLikeStrings(value: unknown, depth = 0): unknown {
+	if (depth > 6) return value;
+
+	if (typeof value === "string") {
+		const parsed = tryParseJsonLikeString(value);
+		return parsed === null ? value : expandJsonLikeStrings(parsed, depth + 1);
+	}
+
+	if (Array.isArray(value)) {
+		return value.map((item) => expandJsonLikeStrings(item, depth + 1));
+	}
+
+	if (value && typeof value === "object") {
+		const source = value as Record<string, unknown>;
+		const next: Record<string, unknown> = {};
+		for (const [key, item] of Object.entries(source)) {
+			next[key] = expandJsonLikeStrings(item, depth + 1);
+		}
+		return next;
+	}
+
+	return value;
+}
+
+function renderJsonPrimitive(value: unknown): ReactNode {
+	if (value === null) {
+		return <span className="text-muted-foreground italic">null</span>;
+	}
+	if (typeof value === "string") {
+		return (
+			<span className="text-emerald-600 dark:text-emerald-400 break-all">
+				"{value}"
+			</span>
+		);
+	}
+	if (typeof value === "number") {
+		return <span className="text-sky-600 dark:text-sky-400">{value}</span>;
+	}
+	if (typeof value === "boolean") {
+		return (
+			<span className="text-amber-600 dark:text-amber-400">
+				{value ? "true" : "false"}
+			</span>
+		);
+	}
+	if (typeof value === "undefined") {
+		return <span className="text-muted-foreground italic">undefined</span>;
+	}
+	return <span className="text-foreground">{String(value)}</span>;
+}
+
+function JsonValueTree({ value, depth = 0 }: { value: unknown; depth?: number }) {
+	if (depth > 10) {
+		return (
+			<span className="text-muted-foreground italic">
+				[Max depth reached]
+			</span>
+		);
+	}
+
+	if (!value || typeof value !== "object") {
+		return renderJsonPrimitive(value);
+	}
+
+	const isArray = Array.isArray(value);
+	const entries = isArray
+		? (value as unknown[]).map((item, index) => [String(index), item] as const)
+		: Object.entries(value as Record<string, unknown>);
+
+	if (entries.length === 0) {
+		return (
+			<span className="text-muted-foreground">{isArray ? "[]" : "{}"}</span>
+		);
+	}
+
+	return (
+		<details open={depth < 1} className="group">
+			<summary className="cursor-pointer list-none select-none text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+				<span>{isArray ? "[" : "{"}</span>
+				<span>{isArray ? `Array(${entries.length})` : `Object(${entries.length})`}</span>
+				<span>{isArray ? "]" : "}"}</span>
+			</summary>
+			<div className="ml-2 mt-1 border-l border-border/60 pl-3 space-y-0.5">
+				{entries.map(([key, item]) => (
+					<div key={`${depth}-${key}`} className="font-mono text-[11px] leading-5">
+						{isArray ? (
+							<span className="text-muted-foreground">[{key}]</span>
+						) : (
+							<span className="text-violet-600 dark:text-violet-400">
+								"{key}"
+							</span>
+						)}
+						<span className="text-muted-foreground">: </span>
+						{item && typeof item === "object" ? (
+							<JsonValueTree value={item} depth={depth + 1} />
+						) : (
+							renderJsonPrimitive(item)
+						)}
+					</div>
+				))}
+			</div>
+		</details>
+	);
+}
+
 function EventPayloadPanel({ event }: { event: TraceEvent | null }) {
 	if (!event) {
 		return (
@@ -134,6 +272,15 @@ function EventPayloadPanel({ event }: { event: TraceEvent | null }) {
 			</div>
 		);
 	}
+
+	const formattedPayload = useMemo(
+		() => expandJsonLikeStrings(event.payload),
+		[event.payload],
+	);
+	const formattedMetrics = useMemo(
+		() => expandJsonLikeStrings(event.metrics || {}),
+		[event.metrics],
+	);
 
 	return (
 		<div className="border rounded-lg p-3 space-y-3">
@@ -153,16 +300,16 @@ function EventPayloadPanel({ event }: { event: TraceEvent | null }) {
 			</div>
 			<div className="space-y-2">
 				<div>
-					<p className="text-xs font-medium mb-1">payload</p>
-					<pre className="rounded bg-muted/60 p-2 text-xs overflow-auto max-h-[220px]">
-						{JSON.stringify(event.payload, null, 2)}
-					</pre>
+					<p className="text-xs font-medium mb-1">payload (click to fold)</p>
+					<div className="rounded bg-muted/60 p-2 text-xs overflow-auto max-h-[300px] font-mono">
+						<JsonValueTree value={formattedPayload} />
+					</div>
 				</div>
 				<div>
-					<p className="text-xs font-medium mb-1">metrics</p>
-					<pre className="rounded bg-muted/60 p-2 text-xs overflow-auto max-h-[160px]">
-						{JSON.stringify(event.metrics || {}, null, 2)}
-					</pre>
+					<p className="text-xs font-medium mb-1">metrics (click to fold)</p>
+					<div className="rounded bg-muted/60 p-2 text-xs overflow-auto max-h-[220px] font-mono">
+						<JsonValueTree value={formattedMetrics} />
+					</div>
 				</div>
 			</div>
 		</div>
