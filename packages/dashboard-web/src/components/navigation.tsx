@@ -138,13 +138,22 @@ export function Navigation() {
 		}
 	};
 
+	const normalizeVersionForCompare = (value: unknown): string => {
+		if (typeof value !== "string") return "";
+		return value.trim().replace(/^v/i, "").split("-")[0];
+	};
+
 	/**
 	 * Compare two semantic versions
 	 * @returns true if latest > current (update available), false otherwise
 	 */
-	const compareVersions = (latest: string, current: string): boolean => {
-		const latestParts = latest.split(".").map(Number);
-		const currentParts = current.split(".").map(Number);
+	const compareVersions = (latest: unknown, current: unknown): boolean => {
+		const latestNormalized = normalizeVersionForCompare(latest);
+		const currentNormalized = normalizeVersionForCompare(current);
+		if (!latestNormalized || !currentNormalized) return false;
+
+		const latestParts = latestNormalized.split(".").map(Number);
+		const currentParts = currentNormalized.split(".").map(Number);
 
 		for (
 			let i = 0;
@@ -212,8 +221,24 @@ export function Navigation() {
 				detectPackageManager(),
 			]);
 
-			const data = await response.json();
-			const latest = data.version;
+			const data = (await response.json()) as {
+				version?: unknown;
+				message?: string;
+				error?: string;
+			};
+
+			if (!response.ok) {
+				throw new Error(
+					data.message ||
+						data.error ||
+						`Version check failed (HTTP ${response.status})`,
+				);
+			}
+
+			const latest = normalizeVersionForCompare(data.version);
+			if (!latest) {
+				throw new Error("Version check response did not include a valid version");
+			}
 
 			// Only update state if component is still mounted
 			if (!isMountedRef.current) return;
@@ -221,7 +246,10 @@ export function Navigation() {
 			setLatestVersion(latest);
 
 			// Remove 'v' prefix from version for comparison
-			const currentVersion = version.replace(/^v/, "");
+			const currentVersion = normalizeVersionForCompare(version);
+			if (!currentVersion) {
+				throw new Error("Current version is invalid");
+			}
 
 			// Use semantic version comparison: only show update if latest > current
 			if (compareVersions(latest, currentVersion)) {
