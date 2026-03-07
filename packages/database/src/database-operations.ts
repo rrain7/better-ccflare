@@ -595,6 +595,14 @@ export class DatabaseOperations implements StrategyStore, Disposable {
 		);
 	}
 
+	getLatestTraceIdForRequest(requestId: string): string | null {
+		return withDatabaseRetrySync(
+			() => this.traces.getLatestTraceIdForRequest(requestId),
+			this.retryConfig,
+			"getLatestTraceIdForRequest",
+		);
+	}
+
 	// OAuth operations delegated to repository
 	createOAuthSession(
 		sessionId: string,
@@ -707,6 +715,7 @@ export class DatabaseOperations implements StrategyStore, Disposable {
 	): {
 		removedRequests: number;
 		removedPayloads: number;
+		removedTraceEvents: number;
 	} {
 		const now = Date.now();
 		const payloadCutoff = now - payloadRetentionMs;
@@ -714,12 +723,14 @@ export class DatabaseOperations implements StrategyStore, Disposable {
 		// statements would otherwise leave orphaned payloads or dangling request rows.
 		return this.db.transaction(() => {
 			let removedRequests = 0;
+			let removedTraceEvents = 0;
 			if (
 				typeof requestRetentionMs === "number" &&
 				Number.isFinite(requestRetentionMs)
 			) {
 				const requestCutoff = now - requestRetentionMs;
 				removedRequests = this.requests.deleteOlderThan(requestCutoff);
+				removedTraceEvents = this.traces.deleteTracesOlderThan(requestCutoff);
 			}
 			const removedPayloadsByAge =
 				this.requests.deletePayloadsOlderThan(payloadCutoff);
@@ -727,6 +738,7 @@ export class DatabaseOperations implements StrategyStore, Disposable {
 			return {
 				removedRequests,
 				removedPayloads: removedPayloadsByAge + removedOrphans,
+				removedTraceEvents,
 			};
 		})();
 	}

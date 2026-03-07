@@ -12,17 +12,17 @@ export function createCleanupHandler(
 		const requestDays = config.getRequestRetentionDays();
 		const payloadMs = payloadDays * 24 * 60 * 60 * 1000;
 		const requestMs = requestDays * 24 * 60 * 60 * 1000;
-		const { removedRequests, removedPayloads } = dbOps.cleanupOldRequests(
-			payloadMs,
-			requestMs,
-		);
-		const cutoffIso = new Date(
-			Date.now() - Math.min(payloadMs, requestMs),
-		).toISOString();
+		const { removedRequests, removedPayloads, removedTraceEvents } =
+			dbOps.cleanupOldRequests(payloadMs, requestMs);
+		const payloadCutoffIso = new Date(Date.now() - payloadMs).toISOString();
+		const requestCutoffIso = new Date(Date.now() - requestMs).toISOString();
 		const payload: CleanupResponse = {
 			removedRequests,
 			removedPayloads,
-			cutoffIso,
+			removedTraceEvents,
+			payloadCutoffIso,
+			requestCutoffIso,
+			cutoffIso: requestCutoffIso,
 		};
 		return jsonResponse(payload);
 	};

@@ -232,3 +232,28 @@ export function createTraceStatsHandler(dbOps: DatabaseOperations) {
 		}
 	};
 }
+
+export function createTraceLookupByRequestHandler(dbOps: DatabaseOperations) {
+	return (req: Request, linkedRequestId: string): Response => {
+		const requestId = createRequestId(req);
+		try {
+			return traceSuccess(
+				{
+					request_id: linkedRequestId,
+					trace_id: dbOps.getLatestTraceIdForRequest(linkedRequestId),
+				},
+				requestId,
+			);
+		} catch (error) {
+			return traceError(
+				500,
+				TRACE_API_CODE_INTERNAL_ERROR,
+				error instanceof Error
+					? error.message
+					: "internal trace lookup failure",
+				requestId,
+				{ request_id: linkedRequestId },
+			);
+		}
+	};
+}

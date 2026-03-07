@@ -43,6 +43,7 @@ import {
 	createApiKeyUpdateRoleHandler,
 } from "./handlers/api-keys";
 import { createConfigHandlers } from "./handlers/config";
+import { createDebugStreamHandler } from "./handlers/debug-stream";
 import { createHealthHandler } from "./handlers/health";
 import { createLogsStreamHandler } from "./handlers/logs";
 import { createLogsHistoryHandler } from "./handlers/logs-history";
@@ -70,6 +71,7 @@ import {
 import {
 	createTraceDetailHandler,
 	createTraceGraphHandler,
+	createTraceLookupByRequestHandler,
 	createTraceStatsHandler,
 	createTracesListHandler,
 } from "./handlers/traces";
@@ -125,6 +127,7 @@ export class APIRouter {
 		const logsStreamHandler = createLogsStreamHandler();
 		const logsHistoryHandler = createLogsHistoryHandler();
 		const analyticsHandler = createAnalyticsHandler(this.context);
+		const debugStreamHandler = createDebugStreamHandler();
 		const oauthInitHandler = createOAuthInitHandler(dbOps);
 		const oauthCallbackHandler = createOAuthCallbackHandler(dbOps);
 		const agentsHandler = createAgentsListHandler(dbOps);
@@ -211,6 +214,9 @@ export class APIRouter {
 		});
 		this.handlers.set("GET:/api/requests/stream", (req) =>
 			requestsStreamHandler(req),
+		);
+		this.handlers.set("GET:/api/debug/stream", (req) =>
+			debugStreamHandler(req),
 		);
 		this.handlers.set("GET:/api/traces", (req, url) =>
 			tracesListHandler(req, url),
@@ -334,6 +340,18 @@ export class APIRouter {
 		// Check for dynamic trace endpoints
 		if (path.startsWith("/api/traces/") && method === "GET") {
 			const parts = path.split("/");
+			if (parts[3] === "by-request") {
+				const linkedRequestId = parts[4];
+				if (linkedRequestId) {
+					const lookupHandler = createTraceLookupByRequestHandler(
+						this.context.dbOps,
+					);
+					return await this.wrapHandler((req) =>
+						lookupHandler(req, decodeURIComponent(linkedRequestId)),
+					)(req, url);
+				}
+			}
+
 			const traceId = parts[3];
 			if (traceId) {
 				if (parts.length === 4) {

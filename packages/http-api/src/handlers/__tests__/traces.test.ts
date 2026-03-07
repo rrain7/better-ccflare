@@ -3,6 +3,7 @@ import type { DatabaseOperations } from "@better-ccflare/database";
 import {
 	createTraceDetailHandler,
 	createTraceGraphHandler,
+	createTraceLookupByRequestHandler,
 	createTraceStatsHandler,
 	createTracesListHandler,
 } from "../traces";
@@ -17,6 +18,7 @@ function createMockDbOps(
 		getTraceSummary: () => null,
 		getTraceGraph: () => ({ trace_id: "tr_1", nodes: [], edges: [] }),
 		getTraceStats: () => null,
+		getLatestTraceIdForRequest: () => null,
 		...overrides,
 	} as unknown as DatabaseOperations;
 }
@@ -141,5 +143,24 @@ describe("Trace handlers response envelope", () => {
 		expect(statsRes.status).toBe(200);
 		expect(statsBody.code).toBe(0);
 		expect((statsBody.data as Record<string, unknown>).trace_id).toBe("tr_1");
+	});
+
+	it("returns trace lookup by request id in unified success envelope", async () => {
+		const dbOps = createMockDbOps({
+			getLatestTraceIdForRequest: () => "tr_lookup_1",
+		});
+
+		const handler = createTraceLookupByRequestHandler(dbOps);
+		const req = new Request("http://localhost/api/traces/by-request/req_1", {
+			headers: { "x-request-id": "req-test-lookup" },
+		});
+		const response = handler(req, "req_1");
+		const body = (await response.json()) as Record<string, unknown>;
+
+		expect(response.status).toBe(200);
+		expect(body.code).toBe(0);
+		expect(body.request_id).toBe("req-test-lookup");
+		expect((body.data as Record<string, unknown>).request_id).toBe("req_1");
+		expect((body.data as Record<string, unknown>).trace_id).toBe("tr_lookup_1");
 	});
 });

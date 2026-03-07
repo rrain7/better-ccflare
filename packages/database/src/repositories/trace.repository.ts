@@ -411,6 +411,21 @@ export class TraceRepository extends BaseRepository<TraceEvent> {
 		};
 	}
 
+	deleteTracesOlderThan(cutoffTs: number): number {
+		return this.runWithChanges(
+			`
+			DELETE FROM trace_events
+			WHERE trace_id IN (
+				SELECT trace_id
+				FROM trace_events
+				GROUP BY trace_id
+				HAVING MAX(COALESCE(ts_end, ts_start)) < ?
+			)
+		`,
+			[cutoffTs],
+		);
+	}
+
 	getMaxRoundId(traceId: string): number {
 		const row = this.get<{ round_id: number | null }>(
 			`
@@ -465,5 +480,20 @@ export class TraceRepository extends BaseRepository<TraceEvent> {
 			[traceId, toolCallId],
 		);
 		return row?.span_id || null;
+	}
+
+	getLatestTraceIdForRequest(requestId: string): string | null {
+		const row = this.get<{ trace_id: string }>(
+			`
+			SELECT trace_id
+			FROM trace_events
+			WHERE request_id = ?
+			GROUP BY trace_id
+			ORDER BY MAX(COALESCE(ts_end, ts_start)) DESC
+			LIMIT 1
+		`,
+			[requestId],
+		);
+		return row?.trace_id || null;
 	}
 }
