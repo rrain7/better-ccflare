@@ -237,7 +237,9 @@ export function Navigation() {
 
 			const latest = normalizeVersionForCompare(data.version);
 			if (!latest) {
-				throw new Error("Version check response did not include a valid version");
+				throw new Error(
+					"Version check response did not include a valid version",
+				);
 			}
 
 			// Only update state if component is still mounted
