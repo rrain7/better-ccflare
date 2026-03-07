@@ -73,4 +73,11 @@ export interface SummaryMessage {
 	summary: import("@better-ccflare/types").RequestResponse;
 }
 
-export type OutgoingWorkerMessage = SummaryMessage;
+export interface TraceEventsMessage {
+	type: "trace_events";
+	requestId: string;
+	traceId: string;
+	events: import("@better-ccflare/types").TraceEvent[];
+}
+
+export type OutgoingWorkerMessage = SummaryMessage | TraceEventsMessage;

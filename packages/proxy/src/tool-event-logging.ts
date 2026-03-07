@@ -1,10 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
+import { debugEvents } from "@better-ccflare/core";
 import type { DatabaseOperations } from "@better-ccflare/database";
 import { jsonResponse } from "@better-ccflare/http-common";
 import { Logger } from "@better-ccflare/logger";
 import type { TraceEvent } from "@better-ccflare/types";
 import type { ProxyContext } from "./handlers/proxy-types";
 import { resolveTraceIdentity } from "./trace-id";
+import { getTraceToolSpanIds } from "./trace-normalizer";
 
 const log = new Logger("ToolEventLogging");
 
@@ -211,6 +213,10 @@ export function parseToolLifecycleEventsFromBatch(
 		!Array.isArray(batchPayload)
 			? (batchPayload as Record<string, unknown>)
 			: {};
+	const headerRequestId =
+		Object.entries(requestHeaders).find(
+			([key]) => key.toLowerCase() === "x-request-id",
+		)?.[1] || undefined;
 
 	const parsed: ParsedToolLifecycleEvent[] = [];
 	for (const event of events) {
@@ -335,7 +341,7 @@ export function parseToolLifecycleEventsFromBatch(
 		const traceIdentity = resolveTraceIdentity(
 			{
 				requestHeaders,
-				requestId: perEventRequestId || requestId,
+				requestId: perEventRequestId || headerRequestId || requestId,
 			},
 			mergedEvent,
 			JSON.stringify(mergedEvent),
@@ -344,7 +350,7 @@ export function parseToolLifecycleEventsFromBatch(
 		parsed.push({
 			kind,
 			traceId: traceIdentity.traceId,
-			requestId: perEventRequestId,
+			requestId: perEventRequestId || headerRequestId || undefined,
 			toolCallId,
 			toolName,
 			eventName,
@@ -366,7 +372,7 @@ export function parseToolLifecycleEventsFromBatch(
 function persistToolLifecycleEvents(
 	dbOps: DatabaseOperations,
 	parsedEvents: ParsedToolLifecycleEvent[],
-): number {
+): { persisted: number; events: TraceEvent[] } {
 	const traceEvents: TraceEvent[] = [];
 	let persisted = 0;
 
@@ -382,7 +388,8 @@ function persistToolLifecycleEvents(
 
 			traceEvents.push({
 				trace_id: event.traceId,
-				span_id: `sp_${randomUUID().replace(/-/g, "")}`,
+				span_id: getTraceToolSpanIds(event.traceId, event.toolCallId)
+					.toolCallSpanId,
 				parent_span_id:
 					dbOps.getLatestTraceChainParentSpan(event.traceId) || undefined,
 				request_id: event.requestId,
@@ -422,7 +429,8 @@ function persistToolLifecycleEvents(
 
 		traceEvents.push({
 			trace_id: event.traceId,
-			span_id: `sp_${randomUUID().replace(/-/g, "")}`,
+			span_id: getTraceToolSpanIds(event.traceId, event.toolCallId)
+				.toolResultSpanId,
 			parent_span_id:
 				linkedToolCallSpan ||
 				dbOps.getLatestTraceChainParentSpan(event.traceId) ||
@@ -462,7 +470,10 @@ function persistToolLifecycleEvents(
 		dbOps.saveTraceEvents(traceEvents);
 	}
 
-	return persisted;
+	return {
+		persisted,
+		events: traceEvents,
+	};
 }
 
 export async function handleInternalEventLoggingBatch(
@@ -500,9 +511,36 @@ export async function handleInternalEventLoggingBatch(
 
 	ctx.asyncWriter.enqueue(() => {
 		try {
-			const count = persistToolLifecycleEvents(ctx.dbOps, parsedEvents);
-			if (count > 0) {
-				log.debug(`Persisted ${count} native tool lifecycle trace events`);
+			const result = persistToolLifecycleEvents(ctx.dbOps, parsedEvents);
+			if (result.persisted > 0) {
+				const emittedByRequest = new Map<
+					string,
+					{ traceId: string; events: TraceEvent[] }
+				>();
+				for (const traceEvent of result.events) {
+					if (!traceEvent.request_id) continue;
+					const existing = emittedByRequest.get(traceEvent.request_id);
+					if (existing) {
+						existing.events.push(traceEvent);
+						continue;
+					}
+					emittedByRequest.set(traceEvent.request_id, {
+						traceId: traceEvent.trace_id,
+						events: [traceEvent],
+					});
+				}
+				for (const [requestId, payload] of emittedByRequest) {
+					debugEvents.emit("event", {
+						type: "trace_events",
+						requestId,
+						traceId: payload.traceId,
+						events: payload.events,
+						source: "native_tool_logging",
+					});
+				}
+				log.debug(
+					`Persisted ${result.persisted} native tool lifecycle trace events`,
+				);
 			}
 		} catch (error) {
 			log.warn("Failed to persist native tool lifecycle events", error);

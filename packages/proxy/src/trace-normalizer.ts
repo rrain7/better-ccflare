@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { RequestResponse } from "@better-ccflare/types";
+import type { RequestResponse, TraceEvent } from "@better-ccflare/types";
 import {
 	parseAssistantMessage,
 	parseRequestMessages,
@@ -30,6 +30,8 @@ interface RequestLikeBody {
 	sessionId?: string;
 	metadata?: Record<string, unknown>;
 }
+
+type RequestLikeMessage = NonNullable<RequestLikeBody["messages"]>[number];
 
 interface OpenAIToolCallLike {
 	id?: string;
@@ -72,6 +74,15 @@ export interface NormalizedTraceData {
 	toolCalls: NormalizedToolCall[];
 	toolResults: NormalizedToolResult[];
 	errorPayload?: Record<string, unknown>;
+}
+
+export interface NormalizedTraceStartData {
+	traceId: string;
+	modelName: string;
+	projectPath?: string;
+	llmRequestPayload: Record<string, unknown>;
+	userInputPayload?: Record<string, unknown>;
+	orchestrationPayload: Record<string, unknown>;
 }
 
 function safeJsonParse<T>(value: string): T | null {
@@ -619,6 +630,252 @@ function normalizeToolChoice(value: unknown): string {
 	return JSON.stringify(value) || "auto";
 }
 
+function getLastUserMessage(
+	requestBody: RequestLikeBody | null,
+): RequestLikeMessage | null {
+	const messages = requestBody?.messages || [];
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		const message = messages[index];
+		if (message?.role === "user") {
+			return message;
+		}
+	}
+	return null;
+}
+
+function toUserInputPayload(
+	requestBody: RequestLikeBody | null,
+	requestBodyText: string | null,
+): Record<string, unknown> | undefined {
+	const userMessage = getLastUserMessage(requestBody);
+	if (!userMessage) {
+		return undefined;
+	}
+
+	const preview = toPreview(userMessage.content, MAX_REQUEST_EXCERPT_CHARS);
+	const summary = summarizeContent(userMessage.content || "");
+	return capPayloadSize({
+		role: "user",
+		content_summary: {
+			content_hash: summary.hash,
+			content_size: summary.size,
+		},
+		content_preview: preview,
+		message_count: (requestBody?.messages || []).length,
+		request_excerpt:
+			preview || toPreview(requestBodyText, MAX_REQUEST_EXCERPT_CHARS),
+	});
+}
+
+export function getTraceStartSpanIds(requestId: string): {
+	userInputSpanId: string;
+	orchestrationSpanId: string;
+} {
+	const suffix = createHash("sha1")
+		.update(requestId)
+		.digest("hex")
+		.slice(0, 20);
+	return {
+		userInputSpanId: `sp_user_${suffix}`,
+		orchestrationSpanId: `sp_orch_${suffix}`,
+	};
+}
+
+export function getTraceModelSpanIds(
+	traceId: string,
+	requestId: string,
+): {
+	requestSpanId: string;
+	responseSpanId: string;
+} {
+	const requestSuffix = createHash("sha1")
+		.update(`${traceId}:llm_request:${requestId}`)
+		.digest("hex")
+		.slice(0, 20);
+	const responseSuffix = createHash("sha1")
+		.update(`${traceId}:llm_response:${requestId}`)
+		.digest("hex")
+		.slice(0, 20);
+	return {
+		requestSpanId: `sp_req_${requestSuffix}`,
+		responseSpanId: `sp_res_${responseSuffix}`,
+	};
+}
+
+export function getTraceToolSpanIds(
+	traceId: string,
+	toolCallId: string,
+): {
+	toolCallSpanId: string;
+	toolResultSpanId: string;
+} {
+	const callSuffix = createHash("sha1")
+		.update(`${traceId}:tool_call:${toolCallId}`)
+		.digest("hex")
+		.slice(0, 20);
+	const resultSuffix = createHash("sha1")
+		.update(`${traceId}:tool_result:${toolCallId}`)
+		.digest("hex")
+		.slice(0, 20);
+	return {
+		toolCallSpanId: `sp_tool_${callSuffix}`,
+		toolResultSpanId: `sp_result_${resultSuffix}`,
+	};
+}
+
+function buildLlmRequestPayload(
+	startMessage: StartMessage,
+	requestBody: RequestLikeBody | null,
+	requestBodyText: string | null,
+	modelName: string,
+	projectPath?: string,
+): Record<string, unknown> {
+	return capPayloadSize({
+		model: modelName,
+		project_path: projectPath,
+		endpoint: startMessage.path,
+		messages_summary: toMessagesSummary(requestBody),
+		messages_preview: toMessagesPreview(requestBody),
+		tools_summary: toToolsSummary(requestBody),
+		tool_choice: normalizeToolChoice(requestBody?.tool_choice),
+		request_id: startMessage.requestId,
+		request_excerpt: toPreview(requestBodyText, MAX_REQUEST_EXCERPT_CHARS),
+	});
+}
+
+export function normalizeTraceStartData(
+	startMessage: StartMessage,
+): NormalizedTraceStartData {
+	const requestBodyText = decodeBase64(startMessage.requestBody);
+	const requestBody =
+		(requestBodyText
+			? safeJsonParse<RequestLikeBody>(requestBodyText)
+			: null) || null;
+
+	const traceId = determineTraceId(startMessage, requestBody, requestBodyText);
+	const modelName = requestBody?.model || "unknown";
+	const projectPath = determineProjectPath(startMessage, requestBody);
+
+	return {
+		traceId,
+		modelName,
+		projectPath,
+		llmRequestPayload: buildLlmRequestPayload(
+			startMessage,
+			requestBody,
+			requestBodyText,
+			modelName,
+			projectPath,
+		),
+		userInputPayload: toUserInputPayload(requestBody, requestBodyText),
+		orchestrationPayload: capPayloadSize({
+			model: modelName,
+			project_path: projectPath,
+			endpoint: startMessage.path,
+			request_id: startMessage.requestId,
+			messages_summary: toMessagesSummary(requestBody),
+			tools_summary: toToolsSummary(requestBody),
+			tool_choice: normalizeToolChoice(requestBody?.tool_choice),
+			request_excerpt: toPreview(requestBodyText, MAX_REQUEST_EXCERPT_CHARS),
+			agent_used: startMessage.agentUsed || undefined,
+			is_stream: startMessage.isStream,
+			retry_attempt: startMessage.retryAttempt,
+			failover_attempts: startMessage.failoverAttempts,
+		}),
+	};
+}
+
+export function buildTraceStartEvents(
+	startMessage: StartMessage,
+	parentSpanId?: string,
+): {
+	traceId: string;
+	modelName: string;
+	projectPath?: string;
+	events: TraceEvent[];
+} {
+	const normalized = normalizeTraceStartData(startMessage);
+	const spanIds = getTraceStartSpanIds(startMessage.requestId);
+	const events: TraceEvent[] = [];
+	const tags = {
+		provider: startMessage.providerName,
+		...(normalized.projectPath ? { project_path: normalized.projectPath } : {}),
+	};
+
+	if (normalized.userInputPayload) {
+		events.push({
+			trace_id: normalized.traceId,
+			span_id: spanIds.userInputSpanId,
+			parent_span_id: parentSpanId || undefined,
+			request_id: startMessage.requestId,
+			type: "user_input",
+			actor: "user",
+			ts_start: startMessage.timestamp,
+			ts_end: startMessage.timestamp,
+			status: "ok",
+			payload: normalized.userInputPayload,
+			tags,
+		});
+	}
+
+	events.push({
+		trace_id: normalized.traceId,
+		span_id: spanIds.orchestrationSpanId,
+		parent_span_id: normalized.userInputPayload
+			? spanIds.userInputSpanId
+			: parentSpanId || undefined,
+		request_id: startMessage.requestId,
+		type: "orchestration_decision",
+		actor: "orchestrator",
+		ts_start: startMessage.timestamp,
+		ts_end: startMessage.timestamp,
+		status: "ok",
+		payload: normalized.orchestrationPayload,
+		tags,
+	});
+
+	return {
+		traceId: normalized.traceId,
+		modelName: normalized.modelName,
+		projectPath: normalized.projectPath,
+		events,
+	};
+}
+
+export function buildLiveLlmRequestEvent(startMessage: StartMessage): {
+	traceId: string;
+	event: TraceEvent;
+} {
+	const normalized = normalizeTraceStartData(startMessage);
+	const modelSpanIds = getTraceModelSpanIds(
+		normalized.traceId,
+		startMessage.requestId,
+	);
+	const startSpanIds = getTraceStartSpanIds(startMessage.requestId);
+
+	return {
+		traceId: normalized.traceId,
+		event: {
+			trace_id: normalized.traceId,
+			span_id: modelSpanIds.requestSpanId,
+			parent_span_id: startSpanIds.orchestrationSpanId,
+			request_id: startMessage.requestId,
+			type: "llm_request",
+			actor: `model:${normalized.modelName}`,
+			ts_start: startMessage.timestamp,
+			ts_end: startMessage.timestamp,
+			status: "ok",
+			payload: normalized.llmRequestPayload,
+			tags: {
+				provider: startMessage.providerName,
+				...(normalized.projectPath
+					? { project_path: normalized.projectPath }
+					: {}),
+			},
+		},
+	};
+}
+
 export function normalizeTraceData(
 	startMessage: StartMessage,
 	responseBodyBase64: string | null,
@@ -632,24 +889,22 @@ export function normalizeTraceData(
 			? safeJsonParse<RequestLikeBody>(requestBodyText)
 			: null) || null;
 
-	const traceId = determineTraceId(startMessage, requestBody, requestBodyText);
-	const modelName = requestBody?.model || summary.model || "unknown";
-	const projectPath = determineProjectPath(startMessage, requestBody);
+	const startData = normalizeTraceStartData(startMessage);
+	const traceId = startData.traceId;
+	const modelName =
+		requestBody?.model || summary.model || startData.modelName || "unknown";
+	const projectPath = startData.projectPath;
 	const toolCalls = collectToolCallsFromResponse(responseBodyText);
 	const toolResults = collectToolResultsFromRequest(requestBodyText);
 	const assistantMessage = parseAssistantMessage(responseBodyText || "");
 
-	const llmRequestPayload = capPayloadSize({
-		model: modelName,
-		project_path: projectPath,
-		endpoint: startMessage.path,
-		messages_summary: toMessagesSummary(requestBody),
-		messages_preview: toMessagesPreview(requestBody),
-		tools_summary: toToolsSummary(requestBody),
-		tool_choice: normalizeToolChoice(requestBody?.tool_choice),
-		request_id: startMessage.requestId,
-		request_excerpt: toPreview(requestBodyText, MAX_REQUEST_EXCERPT_CHARS),
-	});
+	const llmRequestPayload = buildLlmRequestPayload(
+		startMessage,
+		requestBody,
+		requestBodyText,
+		modelName,
+		projectPath,
+	);
 
 	const llmResponsePayload = capPayloadSize({
 		model: modelName,

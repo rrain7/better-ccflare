@@ -7,7 +7,7 @@ export {
 	NETWORK,
 	TIME_CONSTANTS,
 } from "./constants";
-
+export * from "./debug-events";
 export {
 	logError,
 	OAuthError,
@@ -17,7 +17,6 @@ export {
 	TokenRefreshError,
 	ValidationError,
 } from "./errors";
-
 export * from "./lifecycle";
 
 // Export types for model mappings - defined inline in model-mappings.ts

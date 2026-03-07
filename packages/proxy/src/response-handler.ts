@@ -1,4 +1,4 @@
-import { requestEvents } from "@better-ccflare/core";
+import { debugEvents, requestEvents } from "@better-ccflare/core";
 import {
 	sanitizeRequestHeaders,
 	withSanitizedProxyHeaders,
@@ -6,6 +6,10 @@ import {
 import { ANALYTICS_STREAM_SYMBOL } from "@better-ccflare/http-common/symbols";
 import type { Account } from "@better-ccflare/types";
 import type { ProxyContext } from "./handlers";
+import {
+	buildLiveLlmRequestEvent,
+	buildTraceStartEvents,
+} from "./trace-normalizer";
 import type { ChunkMessage, EndMessage, StartMessage } from "./worker-messages";
 
 /**
@@ -119,6 +123,23 @@ export async function forwardToClient(
 			failoverAttempts,
 		};
 		safePostMessage(ctx.usageWorker, startMessage);
+
+		try {
+			const startTrace = buildTraceStartEvents(startMessage);
+			const liveRequest = buildLiveLlmRequestEvent(startMessage);
+			const liveEvents = [...startTrace.events, liveRequest.event];
+			if (liveEvents.length > 0) {
+				debugEvents.emit("event", {
+					type: "trace_events",
+					requestId,
+					traceId: startTrace.traceId,
+					events: liveEvents,
+					source: "request_start",
+				});
+			}
+		} catch {
+			// Best-effort live debug data only.
+		}
 	}
 
 	// Emit request start event for real-time dashboard

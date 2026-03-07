@@ -14,7 +14,13 @@ import model from "@dqbd/tiktoken/encoders/cl100k_base.json";
 import { init, Tiktoken } from "@dqbd/tiktoken/lite/init";
 import { EMBEDDED_TIKTOKEN_WASM } from "./embedded-tiktoken-wasm";
 import { combineChunks } from "./stream-tee";
-import { normalizeTraceData } from "./trace-normalizer";
+import {
+	buildTraceStartEvents,
+	getTraceModelSpanIds,
+	getTraceToolSpanIds,
+	normalizeTraceData,
+	normalizeTraceStartData,
+} from "./trace-normalizer";
 import type {
 	ChunkMessage,
 	EndMessage,
@@ -48,6 +54,19 @@ interface RequestState {
 	providerFinalOutputTokens?: number;
 	shouldSkipLogging?: boolean;
 	currentEvent?: string; // Track SSE event type across chunks
+	liveTraceId?: string;
+	liveModelName?: string;
+	liveProjectPath?: string;
+	liveThinkingPreview?: string;
+	liveTextPreview?: string;
+	liveToolCalls: Map<
+		number,
+		{
+			toolCallId: string;
+			toolName: string;
+			argumentsPreview?: string;
+		}
+	>;
 }
 
 const log = new Logger("PostProcessor");
@@ -188,6 +207,111 @@ function extractUsageFromJson(
 	state.usage.totalTokens = prompt + completion;
 }
 
+function appendPreview(
+	current: string | undefined,
+	incoming: string,
+	maxChars = 1200,
+): string {
+	const next = `${current || ""}${incoming}`;
+	if (next.length <= maxChars) {
+		return next;
+	}
+	return `${next.slice(0, maxChars)}...`;
+}
+
+function emitLiveTraceEvents(
+	requestId: string,
+	traceId: string,
+	events: import("@better-ccflare/types").TraceEvent[],
+): void {
+	if (events.length === 0) return;
+	self.postMessage({
+		type: "trace_events",
+		requestId,
+		traceId,
+		events,
+	});
+}
+
+function emitLiveResponseEvent(state: RequestState): void {
+	if (!state.liveTraceId || !state.liveModelName) {
+		return;
+	}
+
+	const { responseSpanId } = getTraceModelSpanIds(
+		state.liveTraceId,
+		state.startMessage.requestId,
+	);
+	const { requestSpanId } = getTraceModelSpanIds(
+		state.liveTraceId,
+		state.startMessage.requestId,
+	);
+
+	emitLiveTraceEvents(state.startMessage.requestId, state.liveTraceId, [
+		{
+			trace_id: state.liveTraceId,
+			span_id: responseSpanId,
+			parent_span_id: requestSpanId,
+			request_id: state.startMessage.requestId,
+			type: "llm_response",
+			actor: `model:${state.liveModelName}`,
+			ts_start: state.startMessage.timestamp,
+			ts_end: Date.now(),
+			status: "ok",
+			payload: {
+				streaming: true,
+				thinking_preview: state.liveThinkingPreview || undefined,
+				text_preview: state.liveTextPreview || undefined,
+				response_excerpt:
+					state.liveTextPreview || state.liveThinkingPreview || undefined,
+			},
+			tags: {
+				provider: state.startMessage.providerName,
+				...(state.liveProjectPath
+					? { project_path: state.liveProjectPath }
+					: {}),
+			},
+		},
+	]);
+}
+
+function emitLiveToolCallEvent(
+	state: RequestState,
+	toolCallId: string,
+	toolName: string,
+	argumentsPreview?: string,
+): void {
+	if (!state.liveTraceId) {
+		return;
+	}
+
+	const { responseSpanId } = getTraceModelSpanIds(
+		state.liveTraceId,
+		state.startMessage.requestId,
+	);
+	const { toolCallSpanId } = getTraceToolSpanIds(state.liveTraceId, toolCallId);
+
+	emitLiveTraceEvents(state.startMessage.requestId, state.liveTraceId, [
+		{
+			trace_id: state.liveTraceId,
+			span_id: toolCallSpanId,
+			parent_span_id: responseSpanId,
+			request_id: state.startMessage.requestId,
+			type: "tool_call",
+			actor: `tool:${toolName}`,
+			ts_start: Date.now(),
+			ts_end: Date.now(),
+			status: "ok",
+			payload: {
+				tool_call_id: toolCallId,
+				tool_name: toolName,
+				arguments_preview: argumentsPreview,
+				event_source: "live_stream",
+			},
+		},
+	]);
+}
+
 function extractUsageFromData(data: string, state: RequestState): void {
 	try {
 		const parsed = JSON.parse(data);
@@ -204,6 +328,7 @@ function extractUsageFromData(data: string, state: RequestState): void {
 			}
 			if (parsed.message?.model) {
 				state.usage.model = parsed.message.model;
+				state.liveModelName = parsed.message.model;
 			}
 		}
 
@@ -260,6 +385,80 @@ function extractUsageFromData(data: string, state: RequestState): void {
 						(state.usage.outputTokensComputed || 0) + tokens.length;
 				} catch (err) {
 					log.debug("Failed to count tokens:", err);
+				}
+			}
+		}
+
+		if (parsed.type === "content_block_start" && parsed.content_block) {
+			const block = parsed.content_block as {
+				type?: string;
+				id?: string;
+				name?: string;
+				input?: unknown;
+			};
+			if (block.type === "tool_use" && typeof parsed.index === "number") {
+				const toolCallId = block.id || `tool_${parsed.index}`;
+				const toolName = block.name || "unknown";
+				const argumentsPreview =
+					typeof block.input === "string"
+						? block.input
+						: block.input
+							? JSON.stringify(block.input)
+							: undefined;
+				state.liveToolCalls.set(parsed.index, {
+					toolCallId,
+					toolName,
+					argumentsPreview,
+				});
+				emitLiveToolCallEvent(state, toolCallId, toolName, argumentsPreview);
+			}
+		}
+
+		if (parsed.type === "content_block_delta" && parsed.delta) {
+			if (
+				parsed.delta.type === "thinking_delta" &&
+				typeof parsed.delta.thinking === "string"
+			) {
+				state.liveThinkingPreview = appendPreview(
+					state.liveThinkingPreview,
+					parsed.delta.thinking,
+				);
+				emitLiveResponseEvent(state);
+			}
+
+			if (
+				parsed.delta.type === "text_delta" &&
+				typeof parsed.delta.text === "string"
+			) {
+				state.liveTextPreview = appendPreview(
+					state.liveTextPreview,
+					parsed.delta.text,
+				);
+				emitLiveResponseEvent(state);
+			}
+
+			if (
+				parsed.delta.type === "input_json_delta" &&
+				typeof parsed.index === "number"
+			) {
+				const liveTool = state.liveToolCalls.get(parsed.index);
+				if (liveTool) {
+					const partialJson =
+						typeof parsed.delta.partial_json === "string"
+							? parsed.delta.partial_json
+							: "";
+					liveTool.argumentsPreview = appendPreview(
+						liveTool.argumentsPreview,
+						partialJson,
+						800,
+					);
+					state.liveToolCalls.set(parsed.index, liveTool);
+					emitLiveToolCallEvent(
+						state,
+						liveTool.toolCallId,
+						liveTool.toolName,
+						liveTool.argumentsPreview,
+					);
 				}
 			}
 		}
@@ -362,7 +561,20 @@ async function handleStart(msg: StartMessage): Promise<void> {
 		lastActivity: now,
 		createdAt: now,
 		shouldSkipLogging: shouldSkip,
+		liveToolCalls: new Map(),
 	};
+
+	try {
+		const liveTrace = normalizeTraceStartData(msg);
+		state.liveTraceId = liveTrace.traceId;
+		state.liveModelName = liveTrace.modelName;
+		state.liveProjectPath = liveTrace.projectPath;
+	} catch (error) {
+		log.debug(
+			`Failed to initialize live trace metadata for ${msg.requestId}`,
+			error,
+		);
+	}
 
 	// Use agent from message if provided
 	if (msg.agentUsed) {
@@ -723,18 +935,32 @@ async function handleEnd(msg: EndMessage): Promise<void> {
 				msg.error || undefined,
 			);
 			const roundId = dbOps.getTraceMaxRoundId(normalized.traceId) + 1;
-			const requestSpanId = `sp_${randomUUID().replace(/-/g, "")}`;
-			const responseSpanId = `sp_${randomUUID().replace(/-/g, "")}`;
+			const { requestSpanId, responseSpanId } = getTraceModelSpanIds(
+				normalized.traceId,
+				startMessage.requestId,
+			);
 			const parentSpanId = dbOps.getLatestTraceChainParentSpan(
 				normalized.traceId,
 			);
+			const startTrace = buildTraceStartEvents(
+				startMessage,
+				parentSpanId || undefined,
+			);
+			for (const event of startTrace.events) {
+				event.round_id = roundId;
+			}
 			const nowTs = startMessage.timestamp + responseTime;
+			const requestParentSpanId =
+				startTrace.events[startTrace.events.length - 1]?.span_id ||
+				parentSpanId ||
+				undefined;
 
 			const events: import("@better-ccflare/types").TraceEvent[] = [
+				...startTrace.events,
 				{
 					trace_id: normalized.traceId,
 					span_id: requestSpanId,
-					parent_span_id: parentSpanId || undefined,
+					parent_span_id: requestParentSpanId,
 					request_id: startMessage.requestId,
 					round_id: roundId,
 					type: "llm_request",
@@ -789,7 +1015,10 @@ async function handleEnd(msg: EndMessage): Promise<void> {
 
 				events.push({
 					trace_id: normalized.traceId,
-					span_id: `sp_${randomUUID().replace(/-/g, "")}`,
+					span_id: getTraceToolSpanIds(
+						normalized.traceId,
+						toolCall.tool_call_id,
+					).toolCallSpanId,
 					parent_span_id: responseSpanId,
 					request_id: startMessage.requestId,
 					round_id: roundId,
@@ -832,7 +1061,10 @@ async function handleEnd(msg: EndMessage): Promise<void> {
 				const eventTs = resultBaseTs + index;
 				events.push({
 					trace_id: normalized.traceId,
-					span_id: `sp_${randomUUID().replace(/-/g, "")}`,
+					span_id: getTraceToolSpanIds(
+						normalized.traceId,
+						toolResult.tool_call_id,
+					).toolResultSpanId,
 					parent_span_id: linkedToolCallSpan || requestSpanId,
 					request_id: startMessage.requestId,
 					round_id: roundId,
@@ -876,6 +1108,12 @@ async function handleEnd(msg: EndMessage): Promise<void> {
 			}
 
 			dbOps.saveTraceEvents(events);
+			self.postMessage({
+				type: "trace_events",
+				requestId: startMessage.requestId,
+				traceId: normalized.traceId,
+				events,
+			});
 		} catch (error) {
 			log.warn(
 				`Failed to generate trace events for request ${startMessage.requestId}:`,

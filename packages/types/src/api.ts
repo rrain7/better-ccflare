@@ -30,6 +30,9 @@ export interface RetentionSetRequest {
 export interface CleanupResponse {
 	removedRequests: number;
 	removedPayloads: number;
+	removedTraceEvents: number;
+	payloadCutoffIso: string;
+	requestCutoffIso: string;
 	cutoffIso: string;
 }
 

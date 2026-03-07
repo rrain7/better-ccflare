@@ -1,4 +1,5 @@
 import {
+	debugEvents,
 	requestEvents,
 	ServiceUnavailableError,
 	trackClientVersion,
@@ -76,6 +77,17 @@ export function getUsageWorker(): Worker {
 					requestEvents.emit("event", {
 						type: "summary",
 						payload: data.summary,
+					});
+					return;
+				}
+
+				if (data.type === "trace_events") {
+					debugEvents.emit("event", {
+						type: "trace_events",
+						requestId: data.requestId,
+						traceId: data.traceId,
+						events: data.events,
+						source: "worker",
 					});
 				}
 			};
