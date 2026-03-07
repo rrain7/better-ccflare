@@ -210,12 +210,16 @@ function renderJsonPrimitive(value: unknown): ReactNode {
 	return <span className="text-foreground">{String(value)}</span>;
 }
 
-function JsonValueTree({ value, depth = 0 }: { value: unknown; depth?: number }) {
+function JsonValueTree({
+	value,
+	depth = 0,
+}: {
+	value: unknown;
+	depth?: number;
+}) {
 	if (depth > 10) {
 		return (
-			<span className="text-muted-foreground italic">
-				[Max depth reached]
-			</span>
+			<span className="text-muted-foreground italic">[Max depth reached]</span>
 		);
 	}
 
@@ -238,12 +242,17 @@ function JsonValueTree({ value, depth = 0 }: { value: unknown; depth?: number })
 		<details open={depth < 1} className="group">
 			<summary className="cursor-pointer list-none select-none text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
 				<span>{isArray ? "[" : "{"}</span>
-				<span>{isArray ? `Array(${entries.length})` : `Object(${entries.length})`}</span>
+				<span>
+					{isArray ? `Array(${entries.length})` : `Object(${entries.length})`}
+				</span>
 				<span>{isArray ? "]" : "}"}</span>
 			</summary>
 			<div className="ml-2 mt-1 border-l border-border/60 pl-3 space-y-0.5">
 				{entries.map(([key, item]) => (
-					<div key={`${depth}-${key}`} className="font-mono text-[11px] leading-5">
+					<div
+						key={`${depth}-${key}`}
+						className="font-mono text-[11px] leading-5"
+					>
 						{isArray ? (
 							<span className="text-muted-foreground">[{key}]</span>
 						) : (

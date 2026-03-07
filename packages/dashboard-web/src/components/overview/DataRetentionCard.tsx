@@ -41,10 +41,10 @@ export function DataRetentionCard() {
 	return (
 		<Card className="card-hover">
 			<CardHeader>
-				<CardTitle>Payload Retention</CardTitle>
+				<CardTitle>Data Retention</CardTitle>
 				<CardDescription>
-					Automatically delete request/response payloads older than this window.
-					Analytics remain intact.
+					Payloads follow the payload window. Request metadata and trace events
+					follow the request window. Analytics remain intact.
 				</CardDescription>
 			</CardHeader>
 			<CardContent className="space-y-3">
@@ -131,9 +131,12 @@ export function DataRetentionCard() {
 
 				{cleanupNow.data && (
 					<p className="text-xs text-muted-foreground">
-						Removed {cleanupNow.data.removedRequests} requests and{" "}
-						{cleanupNow.data.removedPayloads} payloads older than{" "}
-						{new Date(cleanupNow.data.cutoffIso).toLocaleString()}.
+						Removed {cleanupNow.data.removedRequests} requests,{" "}
+						{cleanupNow.data.removedTraceEvents} trace events, and{" "}
+						{cleanupNow.data.removedPayloads} payloads. Request/trace cutoff:{" "}
+						{new Date(cleanupNow.data.requestCutoffIso).toLocaleString()}.
+						Payload cutoff:{" "}
+						{new Date(cleanupNow.data.payloadCutoffIso).toLocaleString()}.
 					</p>
 				)}
 

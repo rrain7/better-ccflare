@@ -112,7 +112,11 @@ export const useAnalytics = (
 	});
 };
 
-export const useRequests = (limit: number, _refetchInterval?: number) => {
+export const useRequests = (
+	limit: number,
+	_refetchInterval?: number,
+	enabled = true,
+) => {
 	return useQuery({
 		queryKey: queryKeys.requests(limit),
 		queryFn: async () => {
@@ -129,6 +133,7 @@ export const useRequests = (limit: number, _refetchInterval?: number) => {
 		staleTime: Infinity, // Consider data fresh until manually refetched
 		gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
 		// Remove refetchInterval - SSE stream handles real-time updates
+		enabled,
 	});
 };
 
@@ -141,13 +146,17 @@ export const useTraces = (query: TraceListQuery) => {
 	});
 };
 
-export const useTraceDetail = (traceId: string | null) => {
+export const useTraceDetail = (
+	traceId: string | null,
+	refetchInterval?: number | false,
+) => {
 	return useQuery({
 		queryKey: queryKeys.traceDetail(traceId || undefined),
 		queryFn: () => api.getTraceDetail(traceId || ""),
 		enabled: !!traceId,
 		staleTime: 20000,
 		gcTime: 5 * 60 * 1000,
+		refetchInterval,
 	});
 };
 
@@ -156,6 +165,31 @@ export const useTraceGraph = (traceId: string | null) => {
 		queryKey: queryKeys.traceGraph(traceId || undefined),
 		queryFn: () => api.getTraceGraph(traceId || ""),
 		enabled: !!traceId,
+		staleTime: 20000,
+		gcTime: 5 * 60 * 1000,
+	});
+};
+
+export const useTraceLookup = (
+	requestId: string | null,
+	enabled = true,
+	refetchInterval?: number | false,
+) => {
+	return useQuery({
+		queryKey: [...queryKeys.all, "trace", "lookup", { requestId }] as const,
+		queryFn: () => api.getTraceByRequestId(requestId || ""),
+		enabled: enabled && !!requestId,
+		staleTime: 5000,
+		gcTime: 5 * 60 * 1000,
+		refetchInterval,
+	});
+};
+
+export const useRequestPayload = (requestId: string | null, enabled = true) => {
+	return useQuery({
+		queryKey: [...queryKeys.all, "request", "payload", { requestId }] as const,
+		queryFn: () => api.getRequestPayload(requestId || ""),
+		enabled: enabled && !!requestId,
 		staleTime: 20000,
 		gcTime: 5 * 60 * 1000,
 	});

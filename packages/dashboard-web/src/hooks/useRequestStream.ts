@@ -54,7 +54,7 @@ const getOrCreateCleanupInterval = () => {
 	return globalCleanupInterval;
 };
 
-export function useRequestStream(limit = 200) {
+export function useRequestStream(limit = 200, enabled = true) {
 	const queryClient = useQueryClient();
 	const connectionKey = `requests-stream-${limit}`;
 	const isMountedRef = useRef(true);
@@ -283,6 +283,10 @@ export function useRequestStream(limit = 200) {
 	);
 
 	useEffect(() => {
+		if (!enabled) {
+			return;
+		}
+
 		isMountedRef.current = true;
 		const es = connect();
 
@@ -305,7 +309,7 @@ export function useRequestStream(limit = 200) {
 				es.close();
 			}
 		};
-	}, [connect, connectionKey]);
+	}, [connect, connectionKey, enabled]);
 
 	// Global cleanup on unmount
 	useEffect(() => {

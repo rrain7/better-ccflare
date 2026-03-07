@@ -146,7 +146,9 @@ export function RequestsTab() {
 			).sort()
 		: [];
 
-	const getProjectPathFromPayload = (request: RequestPayload): string | null => {
+	const getProjectPathFromPayload = (
+		request: RequestPayload,
+	): string | null => {
 		const headerEntries = Object.entries(request.request.headers || {});
 		const headerMap = new Map<string, string>(
 			headerEntries.map(([k, v]) => [k.toLowerCase(), v]),
@@ -159,7 +161,10 @@ export function RequestsTab() {
 			headerMap.get("x-workspace-root") ||
 			headerMap.get("x-cwd");
 		if (headerPath && headerPath.trim().length > 0) {
-			return headerPath.replace(/\\\//g, "/").replace(/[\\/]+$/g, "").trim();
+			return headerPath
+				.replace(/\\\//g, "/")
+				.replace(/[\\/]+$/g, "")
+				.trim();
 		}
 
 		const bodyBase64 = request.request.body;
@@ -190,19 +195,28 @@ export function RequestsTab() {
 
 		for (const candidate of bodyPathCandidates) {
 			if (typeof candidate === "string" && candidate.trim().length > 0) {
-				return candidate.replace(/\\\//g, "/").replace(/[\\/]+$/g, "").trim();
+				return candidate
+					.replace(/\\\//g, "/")
+					.replace(/[\\/]+$/g, "")
+					.trim();
 			}
 		}
 
 		const text = bodyText;
 		const agentsMatch = /Contents of ([^\r\n]+?)[\\/]+AGENTS\.md/.exec(text);
 		if (agentsMatch?.[1]) {
-			return agentsMatch[1].replace(/\\\//g, "/").replace(/[\\/]+$/g, "").trim();
+			return agentsMatch[1]
+				.replace(/\\\//g, "/")
+				.replace(/[\\/]+$/g, "")
+				.trim();
 		}
 
 		const claudeMatch = /Contents of ([^\r\n]+?)[\\/]+CLAUDE\.md/.exec(text);
 		if (claudeMatch?.[1]) {
-			return claudeMatch[1].replace(/\\\//g, "/").replace(/[\\/]+$/g, "").trim();
+			return claudeMatch[1]
+				.replace(/\\\//g, "/")
+				.replace(/[\\/]+$/g, "")
+				.trim();
 		}
 
 		return null;
@@ -216,7 +230,7 @@ export function RequestsTab() {
 				getProjectPathFromPayload(request),
 			]),
 		);
-	}, [data]);
+	}, [data, getProjectPathFromPayload]);
 
 	// Filter requests based on selected filters
 	const filteredRequests = data

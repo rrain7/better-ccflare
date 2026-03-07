@@ -98,6 +98,11 @@ export interface TraceDetailData {
 	events: TraceEvent[];
 }
 
+export interface TraceLookupData {
+	request_id: string;
+	trace_id: string | null;
+}
+
 interface TraceApiEnvelope<T> {
 	code: number;
 	message: string;
@@ -758,6 +763,27 @@ class API extends HttpClient {
 		}
 	}
 
+	async getRequestPayload(requestId: string): Promise<RequestPayload> {
+		const startTime = Date.now();
+		const url = `/api/requests/payload/${encodeURIComponent(requestId)}`;
+
+		this.logger.debug(`→ GET ${url}`);
+
+		try {
+			const response = await this.get<RequestPayload>(url);
+			const duration = Date.now() - startTime;
+			this.logger.debug(`← GET ${url} - 200 (${duration}ms)`);
+			return response;
+		} catch (error) {
+			const duration = Date.now() - startTime;
+			this.logger.error(`✗ GET ${url} - ERROR (${duration}ms)`, {
+				error: error instanceof Error ? error.message : String(error),
+				stack: error instanceof Error ? error.stack : undefined,
+			});
+			throw error;
+		}
+	}
+
 	async getTraces(query: TraceListQuery = {}): Promise<TraceListData> {
 		const startTime = Date.now();
 		const params = new URLSearchParams();
@@ -824,6 +850,26 @@ class API extends HttpClient {
 
 		try {
 			const response = await this.requestTraceData<TraceGraph>(url);
+			const duration = Date.now() - startTime;
+			this.logger.debug(`← GET ${url} - 200 (${duration}ms)`);
+			return response;
+		} catch (error) {
+			const duration = Date.now() - startTime;
+			this.logger.error(`✗ GET ${url} - ERROR (${duration}ms)`, {
+				error: error instanceof Error ? error.message : String(error),
+				stack: error instanceof Error ? error.stack : undefined,
+			});
+			throw error;
+		}
+	}
+
+	async getTraceByRequestId(requestId: string): Promise<TraceLookupData> {
+		const startTime = Date.now();
+		const url = `/api/traces/by-request/${encodeURIComponent(requestId)}`;
+		this.logger.debug(`→ GET ${url}`);
+
+		try {
+			const response = await this.requestTraceData<TraceLookupData>(url);
 			const duration = Date.now() - startTime;
 			this.logger.debug(`← GET ${url} - 200 (${duration}ms)`);
 			return response;
@@ -1468,6 +1514,9 @@ class API extends HttpClient {
 	async cleanupNow(): Promise<{
 		removedRequests: number;
 		removedPayloads: number;
+		removedTraceEvents: number;
+		payloadCutoffIso: string;
+		requestCutoffIso: string;
 		cutoffIso: string;
 	}> {
 		const startTime = Date.now();
@@ -1479,6 +1528,9 @@ class API extends HttpClient {
 			const response = await this.post<{
 				removedRequests: number;
 				removedPayloads: number;
+				removedTraceEvents: number;
+				payloadCutoffIso: string;
+				requestCutoffIso: string;
 				cutoffIso: string;
 			}>(url);
 			const duration = Date.now() - startTime;
