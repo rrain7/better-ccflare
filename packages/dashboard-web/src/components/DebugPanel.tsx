@@ -881,6 +881,13 @@ function AgentFlowChart({
 		const allNodes = [...filteredLeftNodes, ...filteredRightNodes];
 		return allNodes.find((node) => node.id === selectedNodeId) || allNodes[0] || null;
 	}, [filteredLeftNodes, filteredRightNodes, selectedNodeId]);
+	const selectedNodeDetailsText = useMemo(
+		() =>
+			formatJsonLike(
+				selectedNode?.details || "No detail payload for this node.",
+			),
+		[selectedNode?.details],
+	);
 
 	useEffect(() => {
 		if (!selectedNode) return;
@@ -918,6 +925,10 @@ function AgentFlowChart({
 
 	function handleViewportPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
 		if (event.button !== 0) return;
+		const target = event.target as HTMLElement;
+		if (target.closest("[data-flow-node='true']")) {
+			return;
+		}
 
 		const viewport = viewportRef.current;
 		if (!viewport) return;
@@ -932,7 +943,6 @@ function AgentFlowChart({
 		};
 		setIsPanning(false);
 		viewport.setPointerCapture(event.pointerId);
-		event.preventDefault();
 	}
 
 	function handleViewportPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
@@ -1207,9 +1217,7 @@ function AgentFlowChart({
 										<CopyButton
 											variant="ghost"
 											size="sm"
-											getValue={() =>
-												selectedNode.details || "No detail payload for this node."
-											}
+											getValue={() => selectedNodeDetailsText}
 										>
 											Copy
 										</CopyButton>
@@ -1244,7 +1252,7 @@ function AgentFlowChart({
 										Payload
 									</div>
 									<pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-[#2f3743] bg-[#0d1118] p-3 text-xs leading-5 text-[#c9ced6]">
-										{selectedNode.details || "No detail payload for this node."}
+										{selectedNodeDetailsText}
 									</pre>
 								</div>
 							</div>
