@@ -5,9 +5,9 @@ import {
 	formatTokens,
 } from "@better-ccflare/ui-common";
 import {
-	ChevronRight,
 	Bot,
 	Bug,
+	ChevronRight,
 	Clock3,
 	Eye,
 	Filter,
@@ -19,8 +19,8 @@ import {
 	SquareTerminal,
 	X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RequestPayload, RequestSummary } from "../api";
 import {
 	useRequestPayload,
@@ -465,11 +465,7 @@ function getUserPromptPreview(requestBodyText: string | null): string {
 				const textChunk = message.content
 					.map((part) => {
 						if (typeof part === "string") return part;
-						if (
-							typeof part === "object" &&
-							part !== null &&
-							"text" in part
-						) {
+						if (typeof part === "object" && part !== null && "text" in part) {
 							const value = (part as { text?: unknown }).text;
 							return typeof value === "string" ? value : "";
 						}
@@ -527,7 +523,8 @@ function buildFlowNodes({
 	const userNode: FlowNode = {
 		id: "user",
 		title: "User",
-		subtitle: userPrompt.length > 0 ? userPrompt : "No prompt content captured.",
+		subtitle:
+			userPrompt.length > 0 ? userPrompt : "No prompt content captured.",
 		tone: "user",
 		details: requestBodyText || undefined,
 	};
@@ -553,7 +550,8 @@ function buildFlowNodes({
 	const rightNodes: FlowNode[] = [];
 
 	for (const event of events.slice(0, 40)) {
-		const isToolNode = event.type === "tool_call" || event.type === "tool_result";
+		const isToolNode =
+			event.type === "tool_call" || event.type === "tool_result";
 		const isErrorNode = event.type === "error" || event.status === "error";
 		const node: FlowNode = {
 			id: `${event.trace_id}:${event.span_id}`,
@@ -691,7 +689,10 @@ function AgentFlowChart({
 			mainCursorY += height + FLOW_NODE_GAP_Y;
 		}
 
-		const anchorMainIndex = Math.min(2, Math.max(0, visibleMainNodes.length - 1));
+		const anchorMainIndex = Math.min(
+			2,
+			Math.max(0, visibleMainNodes.length - 1),
+		);
 		const toolStartY =
 			visibleMainNodes.length > 0
 				? (mainYMap.get(visibleMainNodes[anchorMainIndex].id) ?? startY)
@@ -738,11 +739,15 @@ function AgentFlowChart({
 		}
 
 		const chartHeight =
-			nodes.reduce((max, current) => Math.max(max, current.y + current.height), 0) +
-			FLOW_CANVAS_PADDING;
+			nodes.reduce(
+				(max, current) => Math.max(max, current.y + current.height),
+				0,
+			) + FLOW_CANVAS_PADDING;
 		const chartWidth =
-			nodes.reduce((max, current) => Math.max(max, current.x + current.width), 0) +
-			FLOW_CANVAS_PADDING;
+			nodes.reduce(
+				(max, current) => Math.max(max, current.x + current.width),
+				0,
+			) + FLOW_CANVAS_PADDING;
 
 		return {
 			nodes,
@@ -760,7 +765,38 @@ function AgentFlowChart({
 		[layout.nodes],
 	);
 
-	function clampPanOffset(x: number, y: number) {
+	const clampPanOffset = useCallback(
+		(x: number, y: number) => {
+			const viewport = viewportRef.current;
+			if (!viewport) {
+				return { x, y };
+			}
+
+			const clampAxis = (
+				value: number,
+				sceneSize: number,
+				viewportSize: number,
+				targetScale: number,
+			) => {
+				const scaledSceneSize = sceneSize * targetScale;
+				const slack = Math.max(160, Math.round(viewportSize * 0.2));
+				if (scaledSceneSize <= viewportSize) {
+					const center = Math.round((viewportSize - scaledSceneSize) / 2);
+					return Math.min(center + slack, Math.max(center - slack, value));
+				}
+				const min = viewportSize - scaledSceneSize - slack;
+				return Math.min(slack, Math.max(min, value));
+			};
+
+			return {
+				x: clampAxis(x, sceneWidth, viewport.clientWidth, scale),
+				y: clampAxis(y, sceneHeight, viewport.clientHeight, scale),
+			};
+		},
+		[sceneHeight, sceneWidth, scale],
+	);
+
+	function clampPanOffsetAtScale(x: number, y: number, targetScale: number) {
 		const viewport = viewportRef.current;
 		if (!viewport) {
 			return { x, y };
@@ -770,31 +806,7 @@ function AgentFlowChart({
 			value: number,
 			sceneSize: number,
 			viewportSize: number,
-			targetScale: number,
 		) => {
-			const scaledSceneSize = sceneSize * targetScale;
-			const slack = Math.max(160, Math.round(viewportSize * 0.2));
-			if (scaledSceneSize <= viewportSize) {
-				const center = Math.round((viewportSize - scaledSceneSize) / 2);
-				return Math.min(center + slack, Math.max(center - slack, value));
-			}
-			const min = viewportSize - scaledSceneSize - slack;
-			return Math.min(slack, Math.max(min, value));
-		};
-
-		return {
-			x: clampAxis(x, sceneWidth, viewport.clientWidth, scale),
-			y: clampAxis(y, sceneHeight, viewport.clientHeight, scale),
-		};
-	}
-
-	function clampPanOffsetAtScale(x: number, y: number, targetScale: number) {
-		const viewport = viewportRef.current;
-		if (!viewport) {
-			return { x, y };
-		}
-
-		const clampAxis = (value: number, sceneSize: number, viewportSize: number) => {
 			const scaledSceneSize = sceneSize * targetScale;
 			const slack = Math.max(160, Math.round(viewportSize * 0.2));
 			if (scaledSceneSize <= viewportSize) {
@@ -879,7 +891,9 @@ function AgentFlowChart({
 
 	const selectedNode = useMemo(() => {
 		const allNodes = [...filteredLeftNodes, ...filteredRightNodes];
-		return allNodes.find((node) => node.id === selectedNodeId) || allNodes[0] || null;
+		return (
+			allNodes.find((node) => node.id === selectedNodeId) || allNodes[0] || null
+		);
 	}, [filteredLeftNodes, filteredRightNodes, selectedNodeId]);
 	const selectedNodeDetailsText = useMemo(
 		() =>
@@ -912,7 +926,7 @@ function AgentFlowChart({
 			}
 			return next;
 		});
-	}, [sceneWidth, sceneHeight, showDetails, scale]);
+	}, [clampPanOffset]);
 
 	useEffect(() => {
 		const handleResize = () => {
@@ -921,7 +935,7 @@ function AgentFlowChart({
 
 		window.addEventListener("resize", handleResize);
 		return () => window.removeEventListener("resize", handleResize);
-	}, [sceneWidth, sceneHeight, scale]);
+	}, [clampPanOffset]);
 
 	function handleViewportPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
 		if (event.button !== 0) return;
@@ -1112,6 +1126,7 @@ function AgentFlowChart({
 									viewBox={`0 0 ${layout.chartWidth} ${layout.chartHeight}`}
 									className="absolute inset-0 z-0"
 								>
+									<title>Flow connections</title>
 									<defs>
 										<marker
 											id="flow-arrow"
@@ -1244,7 +1259,9 @@ function AgentFlowChart({
 										</div>
 									)}
 									{selectedNode.meta && (
-										<div className="text-xs text-[#8f9bab]">{selectedNode.meta}</div>
+										<div className="text-xs text-[#8f9bab]">
+											{selectedNode.meta}
+										</div>
 									)}
 								</div>
 								<div className="flex min-h-0 flex-1 flex-col px-4 py-3">
@@ -1264,7 +1281,11 @@ function AgentFlowChart({
 					</div>
 				) : (
 					<div className="flex w-[88px] items-start justify-center border-l border-[#262a32] bg-[#12161d] p-2">
-						<Button variant="ghost" size="sm" onClick={() => setShowDetails(true)}>
+						<Button
+							variant="ghost"
+							size="sm"
+							onClick={() => setShowDetails(true)}
+						>
 							Show Details
 						</Button>
 					</div>
@@ -1602,7 +1623,8 @@ export function DebugPanel() {
 											requestBodyText={requestBodyText}
 											events={mergedTraceEvents}
 											isLoading={
-												traceLookupQuery.isFetching || traceDetailQuery.isLoading
+												traceLookupQuery.isFetching ||
+												traceDetailQuery.isLoading
 											}
 											error={traceErrorMessage}
 										/>
